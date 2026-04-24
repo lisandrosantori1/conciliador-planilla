@@ -78,5 +78,11 @@ def apply_rule(
         return series.isna()
     elif rule == "not_null":
         return series.notna()
+    elif rule == "ends_with":
+        return series.astype(str).str.endswith(str(value), na=False)
+    elif rule == "before":
+        return pd.to_datetime(series, errors="coerce") < value
+    elif rule == "after":
+        return pd.to_datetime(series, errors="coerce") > value
 
     return None
