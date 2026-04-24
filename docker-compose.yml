@@ -1,11 +1,11 @@
 version: '3.8'
 
 services:
-  streamlit:
+  conciliador:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: conciliador-planillas
+    container_name: conciliador
     ports:
       - "8501:8501"
     volumes:
@@ -15,5 +15,4 @@ services:
       - STREAMLIT_SERVER_HEADLESS=true
       - STREAMLIT_SERVER_PORT=8501
       - STREAMLIT_SERVER_ADDRESS=0.0.0.0
-    command: streamlit run app.py --logger.level=debug
     restart: unless-stopped
