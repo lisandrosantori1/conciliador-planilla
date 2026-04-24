@@ -7,6 +7,7 @@ import streamlit as st
 from core.comparator import conciliar
 from core.dtype_detector import detect_column_type, VALID_TYPES
 from core.rules import apply_rule
+from ui.column_mapper import column_mapper
 from ui.rule_builder import rule_builder
 from utils.file_loader import accepted_extensions, get_excel_sheets, load_dataframe
 
@@ -174,17 +175,11 @@ if df_a is not None and df_b is not None:
     else:
         st.success(f"🔍 Aplicando {len(rules)} filtro(s) con lógica '{logic}'")
 
-    # ── Configuración de columnas ──────────────────────────────────────────────
-    col_cfg1, col_cfg2 = st.columns(2)
-    with col_cfg1:
-        key_cols = st.multiselect("Columnas para identificar coincidencias (ID, DNI, etc.)", df_a.columns)
-    with col_cfg2:
-        compare_cols = st.multiselect(
-            "Columnas donde querés detectar diferencias",
-            [c for c in df_a.columns if c not in key_cols]
-        )
+    # ── Mapeo de columnas ──────────────────────────────────────────────────────
+    st.divider()
+    key_mappings, compare_mappings = column_mapper(df_a, df_b, file_key)
 
-    if st.button("Ejecutar Conciliación") and key_cols:
+    if st.button("Ejecutar Conciliación") and key_mappings:
 
         # Aplicar filtros
         if rules:
@@ -204,21 +199,19 @@ if df_a is not None and df_b is not None:
             else:
                 df_a = df_a[mask]
 
-        # Validar columnas de cruce en Tabla B
-        missing_in_b = [col for col in key_cols if col not in df_b.columns]
-        if missing_in_b:
-            st.error(f"Las siguientes columnas no existen en Tabla B: {', '.join(missing_in_b)}")
+        # Validar que las columnas mapeadas existen en cada tabla
+        bad_a = [m["col_a"] for m in key_mappings + compare_mappings if m["col_a"] not in df_a.columns]
+        bad_b = [m["col_b"] for m in key_mappings + compare_mappings if m["col_b"] not in df_b.columns]
+        if bad_a:
+            st.error(f"Columnas no encontradas en Tabla A: {', '.join(bad_a)}")
             st.stop()
-
-        # Validar columnas de comparación en Tabla B
-        missing_compare = [col for col in compare_cols if col not in df_b.columns]
-        if missing_compare:
-            st.warning(f"Columnas ignoradas (no están en Tabla B): {', '.join(missing_compare)}")
-            compare_cols = [col for col in compare_cols if col in df_b.columns]
+        if bad_b:
+            st.error(f"Columnas no encontradas en Tabla B: {', '.join(bad_b)}")
+            st.stop()
 
         # Conciliar
         try:
-            coincidencias, solo_a, solo_b, diferencias = conciliar(df_a, df_b, key_cols, compare_cols)
+            coincidencias, solo_a, solo_b, diferencias = conciliar(df_a, df_b, key_mappings, compare_mappings)
         except Exception:
             logger.exception("Error durante la conciliación")
             st.error("Error durante la conciliación.")

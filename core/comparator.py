@@ -3,16 +3,32 @@
 import pandas as pd
 
 
-def conciliar(df_a, df_b, key_cols, compare_cols):
+def conciliar(df_a, df_b, key_mappings, compare_mappings):
     """
-    Realiza la conciliación entre dos DataFrames.
+    Realiza la conciliación entre dos DataFrames con mapeo flexible de columnas.
+
+    Args:
+        key_mappings:     Lista de {"col_a": ..., "col_b": ...} que identifican coincidencias.
+        compare_mappings: Lista de {"col_a": ..., "col_b": ...} donde detectar diferencias.
 
     Returns:
         Tuple (coincidencias, solo_a, solo_b, diferencias) como DataFrames.
     """
+    key_cols_a = [m["col_a"] for m in key_mappings]
+
+    # Renombrar columnas de df_b al nombre equivalente en df_a para poder hacer el merge
+    rename_b = {
+        m["col_b"]: m["col_a"]
+        for m in key_mappings + compare_mappings
+        if m["col_a"] != m["col_b"]
+    }
+    df_b_aligned = df_b.rename(columns=rename_b)
+
+    compare_cols = [m["col_a"] for m in compare_mappings]
+
     df_merge = pd.merge(
-        df_a, df_b,
-        on=key_cols,
+        df_a, df_b_aligned,
+        on=key_cols_a,
         how='outer',
         suffixes=('_A', '_B'),
         indicator=True
@@ -21,7 +37,7 @@ def conciliar(df_a, df_b, key_cols, compare_cols):
     coincidencias = df_merge[df_merge['_merge'] == 'both'].copy()
     solo_a = df_merge[df_merge['_merge'] == 'left_only'].copy()
     solo_b = df_merge[df_merge['_merge'] == 'right_only'].copy()
-    diferencias = _find_differences(coincidencias, compare_cols, key_cols)
+    diferencias = _find_differences(coincidencias, compare_cols, key_cols_a)
 
     return coincidencias, solo_a, solo_b, diferencias
 
