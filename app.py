@@ -3,7 +3,6 @@ import pandas as pd
 from io import BytesIO
 import numpy as np
 from core.dtype_detector import detect_column_type
-from ui.filters_ui import render_filter
 from core.rules import apply_rule
 from ui.rule_builder import rule_builder
 
