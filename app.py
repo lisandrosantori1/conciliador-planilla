@@ -5,10 +5,10 @@ import pandas as pd
 import streamlit as st
 
 from core.comparator import conciliar
-from core.dtype_detector import detect_column_type
+from core.dtype_detector import detect_column_type, VALID_TYPES
 from core.rules import apply_rule
 from ui.rule_builder import rule_builder
-from utils.file_loader import get_excel_sheets, load_dataframe
+from utils.file_loader import accepted_extensions, get_excel_sheets, load_dataframe
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -18,32 +18,77 @@ st.set_page_config(page_title="Conciliador de Planillas - IT Concesionaria", lay
 st.title("Conciliador General de Planillas")
 st.markdown("Compara dos archivos para encontrar coincidencias, faltantes y diferencias.")
 
-# Carga de archivos
+TYPE_LABELS = {"str": "Texto", "int": "Número entero", "float": "Número decimal", "date": "Fecha"}
+
+
+def _render_file_loader(label: str, col_key: str):
+    """Renderiza el uploader + selector de hoja/decimal y retorna (df, decimal)."""
+    file = st.file_uploader(label, type=accepted_extensions())
+    if file is None:
+        return None, "."
+
+    decimal = "."
+    if file.name.lower().endswith(".csv"):
+        decimal = st.radio(
+            "Separador decimal",
+            [".", ","],
+            horizontal=True,
+            key=f"decimal_{col_key}",
+            format_func=lambda x: f'Punto  "."  (ej: 1.50)' if x == "." else f'Coma  ","  (ej: 1,50)',
+        )
+
+    sheet = None
+    if file.name.lower().endswith((".xlsx", ".xls", ".xlsm", ".xlsb")):
+        sheets = get_excel_sheets(file.getvalue(), file.name)
+        sheet = st.selectbox(f"Seleccionar hoja", sheets, key=f"sheet_{col_key}")
+        if len(sheets) > 1:
+            st.caption("📄 Este archivo tiene múltiples hojas")
+
+    df = load_dataframe(file.getvalue(), file.name, sheet=sheet, decimal=decimal)
+    return df, decimal
+
+
+def _render_type_overrides(df, detected: dict, state_key: str, file_key: str):
+    """Muestra grilla de selectboxes para corregir tipos de columnas."""
+    if st.session_state.get(f"_file_key_{state_key}") != file_key:
+        st.session_state[f"_file_key_{state_key}"] = file_key
+        st.session_state[state_key] = dict(detected)
+
+    overrides = st.session_state[state_key]
+    col_list = list(df.columns)
+    cols_per_row = 4
+
+    for i in range(0, len(col_list), cols_per_row):
+        row_cols = col_list[i:i + cols_per_row]
+        ui_cols = st.columns(cols_per_row)
+        for j, col_name in enumerate(row_cols):
+            with ui_cols[j]:
+                current = overrides.get(col_name, detected[col_name])
+                new_type = st.selectbox(
+                    f"**{col_name}**",
+                    VALID_TYPES,
+                    index=VALID_TYPES.index(current),
+                    format_func=lambda t, col=col_name: (
+                        f"{TYPE_LABELS[t]} ✏️" if t != detected.get(col) else TYPE_LABELS[t]
+                    ),
+                    key=f"{state_key}_{col_name}",
+                    help=f"Detectado automáticamente: {TYPE_LABELS[detected[col_name]]}",
+                )
+                overrides[col_name] = new_type
+
+    return overrides
+
+
+# ── Carga de archivos ──────────────────────────────────────────────────────────
 col1, col2 = st.columns(2)
-df_a = None
-df_b = None
 
 with col1:
-    file_a = st.file_uploader("Subir Tabla A (Ej: Administración)", type=['xlsx', 'csv'])
-    if file_a:
-        sheet_a = None
-        if file_a.name.endswith("xlsx"):
-            sheets_a = get_excel_sheets(file_a.getvalue())
-            sheet_a = st.selectbox("Seleccionar hoja Tabla A", sheets_a, key="sheet_a")
-            if len(sheets_a) > 1:
-                st.caption("📄 Este archivo tiene múltiples hojas")
-        df_a = load_dataframe(file_a.getvalue(), file_a.name, sheet=sheet_a)
+    st.markdown("#### Tabla A")
+    df_a, decimal_a = _render_file_loader("Subir Tabla A (Ej: Administración)", "a")
 
 with col2:
-    file_b = st.file_uploader("Subir Tabla B (Ej: Movimientos)", type=['xlsx', 'csv'])
-    if file_b:
-        sheet_b = None
-        if file_b.name.endswith("xlsx"):
-            sheets_b = get_excel_sheets(file_b.getvalue())
-            sheet_b = st.selectbox("Seleccionar hoja Tabla B", sheets_b, key="sheet_b")
-            if len(sheets_b) > 1:
-                st.caption("📄 Este archivo tiene múltiples hojas")
-        df_b = load_dataframe(file_b.getvalue(), file_b.name, sheet=sheet_b)
+    st.markdown("#### Tabla B")
+    df_b, decimal_b = _render_file_loader("Subir Tabla B (Ej: Movimientos)", "b")
 
 
 if df_a is not None and df_b is not None:
@@ -52,19 +97,38 @@ if df_a is not None and df_b is not None:
     if df_a.empty or df_b.empty:
         st.error("Uno o ambos archivos están vacíos. Por favor, verifica los archivos.")
         st.stop()
-
     if len(df_a.columns) == 0 or len(df_b.columns) == 0:
         st.error("Los archivos deben tener encabezados válidos.")
         st.stop()
 
+    # ── Detección de tipos ─────────────────────────────────────────────────────
     try:
-        col_types = {col: detect_column_type(df_a[col]) for col in df_a.columns}
+        detected_a = {col: detect_column_type(df_a[col]) for col in df_a.columns}
+        detected_b = {col: detect_column_type(df_b[col]) for col in df_b.columns}
     except Exception:
         logger.exception("Error al detectar tipos de columnas")
         st.error("Error al analizar las columnas del archivo.")
         st.stop()
 
+    # ── Override manual de tipos ───────────────────────────────────────────────
+    file_key = f"{df_a.shape}-{df_b.shape}-{list(df_a.columns)}-{list(df_b.columns)}"
+
+    with st.expander("🔧 Corregir tipos de datos detectados (opcional)"):
+        st.caption(
+            "Si un tipo fue detectado incorrectamente (ej: código numérico tomado como fecha), "
+            "podés corregirlo acá. El ✏️ indica columnas modificadas."
+        )
+        tab_a, tab_b = st.tabs(["Tabla A", "Tabla B"])
+        with tab_a:
+            col_types_a = _render_type_overrides(df_a, detected_a, "overrides_a", file_key)
+        with tab_b:
+            col_types_b = _render_type_overrides(df_b, detected_b, "overrides_b", file_key)
+
+    col_types = col_types_a  # filtros se aplican sobre Tabla A
+
     st.divider()
+
+    # ── Ayuda y filtros ────────────────────────────────────────────────────────
     with st.expander("ℹ️ ¿Cómo usar los filtros?"):
         st.markdown("""
         ### 🧩 ¿Qué podés hacer acá?
@@ -96,14 +160,6 @@ if df_a is not None and df_b is not None:
 
         ---
 
-        ### 💡 Ejemplos
-
-        - 🔎 Buscar clientes llamados "Juan"
-        - 📅 Ver registros después de cierta fecha
-        - 💰 Encontrar montos entre 100 y 500
-
-        ---
-
         ### ⚠️ Importante
 
         - Podés modificar las reglas en cualquier momento
@@ -118,7 +174,7 @@ if df_a is not None and df_b is not None:
     else:
         st.success(f"🔍 Aplicando {len(rules)} filtro(s) con lógica '{logic}'")
 
-    # Configuración de columnas
+    # ── Configuración de columnas ──────────────────────────────────────────────
     col_cfg1, col_cfg2 = st.columns(2)
     with col_cfg1:
         key_cols = st.multiselect("Columnas para identificar coincidencias (ID, DNI, etc.)", df_a.columns)
