@@ -64,7 +64,6 @@ conciliador-planilla/
 │   ├── rule_labels.py             # Etiquetas de reglas
 │   └── rules.py                   # Motor de reglas
 ├── ui/
-│   ├── filters_ui.py              # Interfaz de filtros
 │   └── rule_builder.py            # Constructor de reglas
 ├── utils/
 │   ├── file_loader.py             # Carga de archivos
