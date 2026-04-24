@@ -1,92 +1,71 @@
-import streamlit as st
-import pandas as pd
+import logging
 from io import BytesIO
-import numpy as np
+
+import pandas as pd
+import streamlit as st
+
+from core.comparator import conciliar
 from core.dtype_detector import detect_column_type
 from core.rules import apply_rule
 from ui.rule_builder import rule_builder
+from utils.file_loader import get_excel_sheets, load_dataframe
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 st.set_page_config(page_title="Conciliador de Planillas - IT Concesionaria", layout="wide")
 
 st.title("Conciliador General de Planillas")
 st.markdown("Compara dos archivos para encontrar coincidencias, faltantes y diferencias.")
 
-# 1. Carga de Archivos
+# Carga de archivos
 col1, col2 = st.columns(2)
-
-# Leer archivos
 df_a = None
 df_b = None
 
 with col1:
-    # -------- TABLA A --------
-    
     file_a = st.file_uploader("Subir Tabla A (Ej: Administración)", type=['xlsx', 'csv'])
-    
     if file_a:
+        sheet_a = None
         if file_a.name.endswith("xlsx"):
-            excel_a = pd.ExcelFile(file_a)
-            sheet_a = st.selectbox(
-                "Seleccionar hoja Tabla A",
-                excel_a.sheet_names,
-                index=excel_a.sheet_names.index(
-                    st.session_state.get("sheet_a", excel_a.sheet_names[0])
-                ),
-                key="sheet_a"
-            )
-
-            if len(excel_a.sheet_names) > 1:
+            sheets_a = get_excel_sheets(file_a.getvalue())
+            sheet_a = st.selectbox("Seleccionar hoja Tabla A", sheets_a, key="sheet_a")
+            if len(sheets_a) > 1:
                 st.caption("📄 Este archivo tiene múltiples hojas")
+        df_a = load_dataframe(file_a.getvalue(), file_a.name, sheet=sheet_a)
 
-            df_a = pd.read_excel(file_a, sheet_name=sheet_a)
-        else:
-            df_a = pd.read_csv(file_a)
-            
 with col2:
-
-    # -------- TABLA B --------
     file_b = st.file_uploader("Subir Tabla B (Ej: Movimientos)", type=['xlsx', 'csv'])
-
     if file_b:
+        sheet_b = None
         if file_b.name.endswith("xlsx"):
-            excel_b = pd.ExcelFile(file_b)
-            sheet_b = st.selectbox(
-                "Seleccionar hoja Tabla B",
-                excel_b.sheet_names,
-                index=excel_b.sheet_names.index(
-                    st.session_state.get("sheet_b", excel_b.sheet_names[0])
-                ),
-                key="sheet_b"
-            )
-
-            if len(excel_b.sheet_names) > 1:
+            sheets_b = get_excel_sheets(file_b.getvalue())
+            sheet_b = st.selectbox("Seleccionar hoja Tabla B", sheets_b, key="sheet_b")
+            if len(sheets_b) > 1:
                 st.caption("📄 Este archivo tiene múltiples hojas")
-
-            df_b = pd.read_excel(file_b, sheet_name=sheet_b)
-        else:
-            df_b = pd.read_csv(file_b)
+        df_b = load_dataframe(file_b.getvalue(), file_b.name, sheet=sheet_b)
 
 
 if df_a is not None and df_b is not None:
-    try:        
+
+    # Validación temprana
+    if df_a.empty or df_b.empty:
+        st.error("Uno o ambos archivos están vacíos. Por favor, verifica los archivos.")
+        st.stop()
+
+    if len(df_a.columns) == 0 or len(df_b.columns) == 0:
+        st.error("Los archivos deben tener encabezados válidos.")
+        st.stop()
+
+    try:
         col_types = {col: detect_column_type(df_a[col]) for col in df_a.columns}
-        
-        # Validaciones básicas
-        if df_a.empty or df_b.empty:
-            st.error("Uno o ambos archivos están vacíos. Por favor, verifica los archivos.")
-            st.stop()
-        
-        if len(df_a.columns) == 0 or len(df_b.columns) == 0:
-            st.error("Los archivos deben tener encabezados válidos.")
-            st.stop()
-            
-    except Exception as e:
-        st.error(f"Error al leer los archivos: {str(e)}")
+    except Exception:
+        logger.exception("Error al detectar tipos de columnas")
+        st.error("Error al analizar las columnas del archivo.")
         st.stop()
 
     st.divider()
     with st.expander("ℹ️ ¿Cómo usar los filtros?"):
-
         st.markdown("""
         ### 🧩 ¿Qué podés hacer acá?
 
@@ -109,10 +88,10 @@ if df_a is not None and df_b is not None:
 
         Podés usar:
 
-        - **Y** → se cumplen TODAS las condiciones  
+        - **Y** → se cumplen TODAS las condiciones
         (Ej: Nombre contiene "Juan" Y Edad mayor a 30)
 
-        - **O** → se cumple AL MENOS una  
+        - **O** → se cumple AL MENOS una
         (Ej: Nombre contiene "Juan" O "Pedro")
 
         ---
@@ -139,103 +118,57 @@ if df_a is not None and df_b is not None:
     else:
         st.success(f"🔍 Aplicando {len(rules)} filtro(s) con lógica '{logic}'")
 
-    # 2. Configuración de columnas
+    # Configuración de columnas
     col_cfg1, col_cfg2 = st.columns(2)
-    
     with col_cfg1:
         key_cols = st.multiselect("Columnas para identificar coincidencias (ID, DNI, etc.)", df_a.columns)
-    
     with col_cfg2:
-        compare_cols = st.multiselect("Columnas donde querés detectar diferencias", [c for c in df_a.columns if c not in key_cols])
+        compare_cols = st.multiselect(
+            "Columnas donde querés detectar diferencias",
+            [c for c in df_a.columns if c not in key_cols]
+        )
 
     if st.button("Ejecutar Conciliación") and key_cols:
-        # Aplicar reglas antes de conciliar
+
+        # Aplicar filtros
         if rules:
             mask = None
-
             for r in rules:
                 m = apply_rule(
-                    df_a[r["col"]],
-                    r["condition"],
-                    r.get("value"),
-                    r.get("value2"),
+                    df_a[r["col"]], r["condition"],
+                    r.get("value"), r.get("value2"),
                     dtype=col_types[r["col"]]
                 )
-
                 if m is None:
                     continue
-
-                if mask is None:
-                    mask = m
-                else:
-                    if logic == "AND":
-                        mask = mask & m
-                    else:
-                        mask = mask | m
+                mask = m if mask is None else (mask & m if logic == "AND" else mask | m)
 
             if mask is None:
                 st.warning("⚠️ No hay reglas válidas aplicadas.")
             else:
                 df_a = df_a[mask]
-        
-        # Verificar que las columnas de cruce existan en ambas tablas
+
+        # Validar columnas de cruce en Tabla B
         missing_in_b = [col for col in key_cols if col not in df_b.columns]
         if missing_in_b:
-            st.error(f"Las siguientes columnas de cruce no existen en la Tabla B: {', '.join(missing_in_b)}")
+            st.error(f"Las siguientes columnas no existen en Tabla B: {', '.join(missing_in_b)}")
             st.stop()
-        
-        # --- LÓGICA DE CONCILIACIÓN ---
+
+        # Validar columnas de comparación en Tabla B
+        missing_compare = [col for col in compare_cols if col not in df_b.columns]
+        if missing_compare:
+            st.warning(f"Columnas ignoradas (no están en Tabla B): {', '.join(missing_compare)}")
+            compare_cols = [col for col in compare_cols if col in df_b.columns]
+
+        # Conciliar
         try:
-            # Realizamos un merge exterior para identificar todo
-            df_merge = pd.merge(df_a, df_b, on=key_cols, how='outer', suffixes=('_A', '_B'), indicator=True)
-
-            # Separar resultados
-            coincidencias = df_merge[df_merge['_merge'] == 'both'].copy()
-            solo_a = df_merge[df_merge['_merge'] == 'left_only'].copy()
-            solo_b = df_merge[df_merge['_merge'] == 'right_only'].copy()
-
-            # Detectar diferencias en columnas específicas
-            diferencias = pd.DataFrame()
-            diferencias_detalle = []
-            
-            if compare_cols:
-                # Verificar que las columnas a comparar existan en ambas tablas
-                missing_compare_in_b = [col for col in compare_cols if col not in df_b.columns]
-                if missing_compare_in_b:
-                    st.warning(f"Las siguientes columnas a comparar no existen en la Tabla B: {', '.join(missing_compare_in_b)}. Se omitirán.")
-                    compare_cols = [col for col in compare_cols if col in df_b.columns]
-                
-                if compare_cols:
-                    for idx, row in coincidencias.iterrows():
-                        diff_cols = []
-                        for col in compare_cols:
-                            val_a = row[f"{col}_A"]
-                            val_b = row[f"{col}_B"]
-                            
-                            # Comparar valores considerando NaN
-                            if pd.isna(val_a) and pd.isna(val_b):
-                                continue
-                            elif pd.isna(val_a) or pd.isna(val_b):
-                                diff_cols.append(col)
-                            elif str(val_a).strip() != str(val_b).strip():
-                                diff_cols.append(col)
-                        
-                        if diff_cols:
-                            diferencias_detalle.append({
-                                **{col: row[col] for col in key_cols},
-                                'Columnas_con_diferencias': ', '.join(diff_cols),
-                                **{f"{col}_A": row[f"{col}_A"] for col in diff_cols},
-                                **{f"{col}_B": row[f"{col}_B"] for col in diff_cols}
-                            })
-                    
-                    if diferencias_detalle:
-                        diferencias = pd.DataFrame(diferencias_detalle)
-
-        except Exception as e:
-            st.error(f"Error durante la conciliación: {str(e)}")
+            coincidencias, solo_a, solo_b, diferencias = conciliar(df_a, df_b, key_cols, compare_cols)
+        except Exception:
+            logger.exception("Error durante la conciliación")
+            st.error("Error durante la conciliación.")
             st.stop()
 
-        # 3. Mostrar Resumen en Pantalla
+        # Resultados
         st.success("Conciliación completada.")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Coincidencias", len(coincidencias))
@@ -243,10 +176,8 @@ if df_a is not None and df_b is not None:
         m3.metric("Solo en B", len(solo_b))
         m4.metric("Diferencias halladas", len(diferencias))
 
-        # Mostrar preview de resultados
         with st.expander("Vista previa de resultados"):
             tab1, tab2, tab3, tab4 = st.tabs(["Coincidencias", "Solo en A", "Solo en B", "Diferencias"])
-            
             with tab1:
                 st.dataframe(coincidencias.head(10), use_container_width=True)
             with tab2:
@@ -259,7 +190,7 @@ if df_a is not None and df_b is not None:
                 else:
                     st.info("No se encontraron diferencias en las columnas seleccionadas.")
 
-        # 4. Generar archivo Excel de descarga
+        # Descarga
         try:
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -277,8 +208,9 @@ if df_a is not None and df_b is not None:
                 file_name="conciliacion_resultado.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-        except Exception as e:
-            st.error(f"Error al generar el archivo de descarga: {str(e)}")
-            
+        except Exception:
+            logger.exception("Error al generar descarga")
+            st.error("Error al generar el archivo de descarga.")
+
 else:
     st.info("Por favor, sube ambos archivos para comenzar.")
