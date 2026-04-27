@@ -112,17 +112,29 @@ def _apply_calc_cols(df: pd.DataFrame, defs: list) -> pd.DataFrame:
     return result
 
 
+def _numeric_cols_from(coinc: pd.DataFrame) -> list:
+    """Columnas de coincidencias que son o pueden convertirse a número (int o float)."""
+    cols = []
+    for c in coinc.columns:
+        if c == "_merge":
+            continue
+        if pd.api.types.is_numeric_dtype(coinc[c]):
+            cols.append(c)
+        else:
+            # Columnas object que tienen al menos un valor numérico
+            if pd.to_numeric(coinc[c], errors="coerce").notna().any():
+                cols.append(c)
+    return cols
+
+
 def _render_calc_cols_section(coinc: pd.DataFrame):
     """UI para definir columnas calculadas sobre las coincidencias."""
-    numeric_cols = [
-        c for c in coinc.columns
-        if c != "_merge" and pd.api.types.is_numeric_dtype(coinc[c])
-    ]
+    numeric_cols = _numeric_cols_from(coinc)
 
     with st.container(border=True):
         st.markdown("#### 🔢 Columnas calculadas — agregar a Coincidencias (opcional)")
         st.caption(
-            "Definí operaciones entre columnas numéricas del resultado. "
+            "Definí operaciones entre columnas numéricas de cualquier tabla. "
             "Ejemplo: Cantidad × Precio unitario → Precio total."
         )
 
@@ -137,9 +149,9 @@ def _render_calc_cols_section(coinc: pd.DataFrame):
 
         if defs:
             h1, h2, h3, h4, _ = st.columns([3, 1, 3, 3, 1])
-            h1.caption("Columna 1")
+            h1.caption("Columna 1 (cualquier tabla)")
             h2.caption("Op.")
-            h3.caption("Columna 2")
+            h3.caption("Columna 2 (cualquier tabla)")
             h4.caption("Nombre del resultado")
 
         to_delete = []
@@ -174,29 +186,44 @@ def _render_calc_cols_section(coinc: pd.DataFrame):
                 if st.button("❌", key=f"cd_del_{i}"):
                     to_delete.append(i)
 
+            # Preview de la fórmula
+            name_preview = d.get("name") or f"Calculada_{i + 1}"
+            col1_preview = d.get("col1", "?")
+            col2_preview = d.get("col2", "?")
+            op_preview = d.get("op", "×")
+            st.caption(f"→ **{name_preview}** = `{col1_preview}` **{op_preview}** `{col2_preview}`")
+
         for i in reversed(to_delete):
             defs.pop(i)
+            st.session_state.pop("calc_applied", None)
             st.rerun()
 
-        if st.button("➕ Agregar columna calculada", key="calc_add"):
-            defs.append({
-                "col1": numeric_cols[0],
-                "op": "×",
-                "col2": numeric_cols[min(1, len(numeric_cols) - 1)],
-                "name": f"Calculada_{len(defs) + 1}",
-            })
-            st.rerun()
+        add_col, calc_col = st.columns([2, 2])
+        with add_col:
+            if st.button("➕ Agregar columna calculada", key="calc_add"):
+                defs.append({
+                    "col1": numeric_cols[0],
+                    "op": "×",
+                    "col2": numeric_cols[min(1, len(numeric_cols) - 1)],
+                    "name": f"Calculada_{len(defs) + 1}",
+                })
+                st.session_state.pop("calc_applied", None)
+                st.rerun()
+        with calc_col:
+            if defs and st.button("▶️ Calcular columnas", key="btn_calc", type="primary"):
+                st.session_state["calc_applied"] = True
+                st.rerun()
 
 
 def _reset_filters_if_table_changed(table_key: str):
     if st.session_state.get("_active_table_key") != table_key:
         st.session_state["_active_table_key"] = table_key
         for k in ("rules", "current_rule", "key_mappings", "compare_mappings",
-                  "concil_results", "calc_definitions"):
+                  "concil_results", "calc_definitions", "calc_applied"):
             st.session_state.pop(k, None)
         st.session_state["logic"] = "AND"
 
-
+''' Comentado por el momento ya que no esta actualizado y molesta. Luego verlo
 def _help_text():
     with st.expander("ℹ️ ¿Cómo usar los filtros?"):
         st.markdown("""
@@ -209,6 +236,7 @@ def _help_text():
 - **Y** → se cumplen TODAS las condiciones
 - **O** → se cumple AL MENOS una
         """)
+'''
 
 
 # ── Carga de archivos ──────────────────────────────────────────────────────────
@@ -429,9 +457,12 @@ else:
         # Columnas calculadas
         _render_calc_cols_section(coincidencias)
 
-        # Aplicar cálculos a coincidencias para preview y descarga
+        # Aplicar cálculos solo cuando el usuario presionó "▶️ Calcular columnas"
         calc_defs = st.session_state.get("calc_definitions", [])
-        coinc_con_calcs = _apply_calc_cols(coincidencias, calc_defs)
+        if calc_defs and st.session_state.get("calc_applied"):
+            coinc_con_calcs = _apply_calc_cols(coincidencias, calc_defs)
+        else:
+            coinc_con_calcs = coincidencias
 
         # Vista previa
         tab_names = ["Coincidencias"]

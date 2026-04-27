@@ -117,7 +117,8 @@ def rule_builder(df, col_types):
     st.session_state.logic = logic_map[logic_label]
 
     with st.container(border=True):
-        st.markdown("### ➕ Nueva regla")
+        st.markdown("### Nueva regla de filtro por columna")
+        st.caption("Seleccioná una columna, la condición y el valor para filtrar registros.")
         if st.button("➕ Agregar regla"):
             st.session_state.current_rule = {
                 "col": df.columns[0],
@@ -130,7 +131,7 @@ def rule_builder(df, col_types):
 
     if rule:
         with st.container(border=True):
-            st.warning("🆕 Regla en edición")
+            st.info("✏️ Configurá la regla: elegí columna → condición → valor, luego **✅ Aplicar**.")
 
         col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
 
@@ -181,6 +182,11 @@ def rule_builder(df, col_types):
 
     with st.container(border=True):
         st.markdown("### 📋 Reglas actuales")
+        st.caption(
+            "Reglas aplicadas sobre la tabla. Podés **editarlas** haciendo clic sobre la **columna**, "
+            "**condición** o **valor**, o **eliminarlas** con el botón ❌. "
+            "Hay ejemplo debajo del valor para cada tipo de dato."
+        )
 
     for i, r in enumerate(st.session_state.rules):
         col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
