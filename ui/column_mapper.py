@@ -7,8 +7,8 @@ def _default_key_mappings(df_a, df_b):
     """Pre-popula el mapeo con la primera columna en común, si existe."""
     common = [col for col in df_a.columns if col in df_b.columns]
     if common:
-        return [{"col_a": common[0], "col_b": common[0]}]
-    return [{"col_a": df_a.columns[0], "col_b": df_b.columns[0]}]
+        return [{"col_a": common[0], "col_b": common[0], "fuzzy": False}]
+    return [{"col_a": df_a.columns[0], "col_b": df_b.columns[0], "fuzzy": False}]
 
 
 def _init_state(df_a, df_b, file_key: str):
@@ -18,8 +18,51 @@ def _init_state(df_a, df_b, file_key: str):
         st.session_state["compare_mappings"] = []
 
 
-def _mapping_row(df_a, df_b, mapping: dict, row_key: str, deletable: bool = True):
-    """Renderiza una fila de mapeo col_a ↔ col_b con botón de borrar."""
+def _key_mapping_row(df_a, df_b, mapping: dict, row_key: str):
+    """Renderiza una fila de mapeo clave con selector de columnas y opción Aproximado."""
+    cols_a = list(df_a.columns)
+    cols_b = list(df_b.columns)
+
+    c1, arrow, c2, c_fuzzy, c_del = st.columns([4, 1, 4, 3, 1])
+
+    with c1:
+        idx_a = cols_a.index(mapping["col_a"]) if mapping["col_a"] in cols_a else 0
+        mapping["col_a"] = st.selectbox(
+            "Tabla A", cols_a, index=idx_a, key=f"{row_key}_a", label_visibility="collapsed"
+        )
+
+    with arrow:
+        st.markdown("<div style='text-align:center;margin-top:8px;font-size:20px'>↔</div>", unsafe_allow_html=True)
+
+    with c2:
+        idx_b = cols_b.index(mapping["col_b"]) if mapping["col_b"] in cols_b else 0
+        mapping["col_b"] = st.selectbox(
+            "Tabla B", cols_b, index=idx_b, key=f"{row_key}_b", label_visibility="collapsed"
+        )
+
+    with c_fuzzy:
+        st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
+        mapping["fuzzy"] = st.checkbox(
+            "Aproximado",
+            value=mapping.get("fuzzy", False),
+            key=f"{row_key}_fuzzy",
+            help=(
+                "Activa coincidencia por contenido: "
+                "'46348199' coincide con 'K46348199' porque uno contiene al otro. "
+                "Útil cuando los códigos tienen prefijos o sufijos variables."
+            ),
+        )
+
+    with c_del:
+        st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
+        if st.button("❌", key=f"{row_key}_del"):
+            return True
+
+    return False
+
+
+def _compare_mapping_row(df_a, df_b, mapping: dict, row_key: str):
+    """Renderiza una fila de columna a comparar (sin opción fuzzy)."""
     cols_a = list(df_a.columns)
     cols_b = list(df_b.columns)
 
@@ -32,7 +75,7 @@ def _mapping_row(df_a, df_b, mapping: dict, row_key: str, deletable: bool = True
         )
 
     with arrow:
-        st.markdown("<div style='text-align:center; margin-top:8px; font-size:20px'>↔</div>", unsafe_allow_html=True)
+        st.markdown("<div style='text-align:center;margin-top:8px;font-size:20px'>↔</div>", unsafe_allow_html=True)
 
     with c2:
         idx_b = cols_b.index(mapping["col_b"]) if mapping["col_b"] in cols_b else 0
@@ -42,8 +85,8 @@ def _mapping_row(df_a, df_b, mapping: dict, row_key: str, deletable: bool = True
 
     with c3:
         st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
-        if deletable and st.button("❌", key=f"{row_key}_del"):
-            return True  # señal de borrar
+        if st.button("❌", key=f"{row_key}_del"):
+            return True
 
     return False
 
@@ -53,7 +96,9 @@ def column_mapper(df_a, df_b, file_key: str):
     Renderiza la UI de mapeo de columnas entre Tabla A y Tabla B.
 
     Returns:
-        Tuple (key_mappings, compare_mappings) — listas de {"col_a": ..., "col_b": ...}.
+        Tuple (key_mappings, compare_mappings).
+        key_mappings: lista de {"col_a", "col_b", "fuzzy"}.
+        compare_mappings: lista de {"col_a", "col_b"}.
     """
     _init_state(df_a, df_b, file_key)
 
@@ -62,10 +107,11 @@ def column_mapper(df_a, df_b, file_key: str):
         st.markdown("#### 🔑 Columnas clave — identifican coincidencias")
         st.caption(
             "Elegí qué columna de **Tabla A** corresponde a qué columna de **Tabla B**. "
-            "Pueden tener distinto nombre."
+            "Activá **Aproximado** si los valores pueden tener prefijos o sufijos distintos "
+            "(ej: '46348199' con 'K46348199')."
         )
 
-        c_head1, _, c_head2, _ = st.columns([5, 1, 5, 1])
+        c_head1, _, c_head2, c_head3, _ = st.columns([4, 1, 4, 3, 1])
         with c_head1:
             st.markdown("**Tabla A**")
         with c_head2:
@@ -73,8 +119,7 @@ def column_mapper(df_a, df_b, file_key: str):
 
         to_delete = []
         for i, m in enumerate(st.session_state.key_mappings):
-            should_delete = _mapping_row(df_a, df_b, m, f"km_{i}", deletable=True)
-            if should_delete:
+            if _key_mapping_row(df_a, df_b, m, f"km_{i}"):
                 to_delete.append(i)
 
         for i in reversed(to_delete):
@@ -84,7 +129,8 @@ def column_mapper(df_a, df_b, file_key: str):
         if st.button("➕ Agregar columna clave", key="km_add"):
             st.session_state.key_mappings.append({
                 "col_a": df_a.columns[0],
-                "col_b": df_b.columns[0]
+                "col_b": df_b.columns[0],
+                "fuzzy": False,
             })
             st.rerun()
 
@@ -92,7 +138,6 @@ def column_mapper(df_a, df_b, file_key: str):
     with st.container(border=True):
         st.markdown("#### 📊 Columnas a comparar — detectan diferencias (opcional)")
         st.caption(
-            "Si las columnas se llaman distinto en cada tabla, podés mapearlas aquí. "
             "Si no agregás ninguna, la conciliación solo muestra coincidencias y faltantes."
         )
 
@@ -105,8 +150,7 @@ def column_mapper(df_a, df_b, file_key: str):
 
         to_delete = []
         for i, m in enumerate(st.session_state.compare_mappings):
-            should_delete = _mapping_row(df_a, df_b, m, f"cm_{i}", deletable=True)
-            if should_delete:
+            if _compare_mapping_row(df_a, df_b, m, f"cm_{i}"):
                 to_delete.append(i)
 
         for i in reversed(to_delete):
@@ -116,7 +160,7 @@ def column_mapper(df_a, df_b, file_key: str):
         if st.button("➕ Agregar columna a comparar", key="cm_add"):
             st.session_state.compare_mappings.append({
                 "col_a": df_a.columns[0],
-                "col_b": df_b.columns[0]
+                "col_b": df_b.columns[0],
             })
             st.rerun()
 
