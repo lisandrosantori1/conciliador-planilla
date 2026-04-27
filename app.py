@@ -383,21 +383,6 @@ else:
     st.divider()
     key_mappings, compare_mappings = column_mapper(df_a, df_b, mapper_key)
 
-    # Opciones de resultado
-    with st.container(border=True):
-        st.caption("Incluir en resultados y descarga:")
-        oc1, oc2 = st.columns(2)
-        with oc1:
-            show_solo_a = st.checkbox(
-                f"Registros solo en {sel_a}", value=False, key="show_solo_a",
-                help=f"Filas de {sel_a} sin coincidencia en {sel_b}",
-            )
-        with oc2:
-            show_solo_b = st.checkbox(
-                f"Registros solo en {sel_b}", value=False, key="show_solo_b",
-                help=f"Filas de {sel_b} sin coincidencia en {sel_a}",
-            )
-
     if st.button("Ejecutar Conciliación", type="primary") and key_mappings:
         df_a_filtered = _apply_filters(df_a, rules, logic, col_types)
 
@@ -434,21 +419,70 @@ else:
     if "concil_results" in st.session_state:
         res = st.session_state["concil_results"]
         coincidencias = res["coincidencias"]
-        solo_a = res["solo_a"]
-        solo_b = res["solo_b"]
-        diferencias = res["diferencias"]
+        solo_a       = res["solo_a"]
+        solo_b       = res["solo_b"]
+        diferencias  = res["diferencias"]
         df_a_filtered = res["df_a_filtered"]
 
-        # Métricas: solo mostrar solo_a/solo_b si el checkbox está activo
-        st.success("Conciliación completada.")
-        metric_cols = ["Coincidencias"]
-        if show_solo_a:
-            metric_cols.append(f"Solo en {sel_a}")
-        if show_solo_b:
-            metric_cols.append(f"Solo en {sel_b}")
-        metric_cols.append("Diferencias halladas")
+        # Columnas calculadas
+        _render_calc_cols_section(coincidencias)
 
-        m_cols = st.columns(len(metric_cols))
+        calc_defs = st.session_state.get("calc_definitions", [])
+        if calc_defs and st.session_state.get("calc_applied"):
+            coinc_con_calcs = _apply_calc_cols(coincidencias, calc_defs)
+        else:
+            coinc_con_calcs = coincidencias
+
+        # ── Configuración de descarga ──────────────────────────────────────────
+        key_col_names = [m["col_a"] for m in key_mappings]
+
+        with st.expander("⚙️ Configuración de descarga", expanded=False):
+            dl_filename = st.text_input(
+                "Nombre del archivo (sin extensión)",
+                value="conciliacion_resultado",
+                key="dl_filename",
+            )
+
+            st.markdown("**Hojas a incluir** (Coincidencias siempre se incluye):")
+            hc1, hc2, hc3, hc4, hc5 = st.columns(5)
+            inc_diffs  = hc1.checkbox("Diferencias",          value=True,  key="dl_diffs")
+            show_solo_a = hc2.checkbox(f"Solo {sel_a[:16]}",  value=False, key="dl_solo_a",
+                                       help=f"Filas de {sel_a} sin coincidencia en {sel_b}")
+            show_solo_b = hc3.checkbox(f"Solo {sel_b[:16]}",  value=False, key="dl_solo_b",
+                                       help=f"Filas de {sel_b} sin coincidencia en {sel_a}")
+            inc_orig_a  = hc4.checkbox(f"{sel_a[:14]} orig.", value=False, key="dl_orig_a",
+                                       help=f"Incluir tabla {sel_a} completa tal como fue cargada")
+            inc_orig_b  = hc5.checkbox(f"{sel_b[:14]} orig.", value=False, key="dl_orig_b",
+                                       help=f"Incluir tabla {sel_b} completa tal como fue cargada")
+
+            all_coinc_cols = [c for c in coinc_con_calcs.columns if c != "_merge"]
+            optional_cols  = [c for c in all_coinc_cols if c not in key_col_names]
+
+            if key_col_names:
+                fixed_label = ", ".join(f"`{c}`" for c in key_col_names if c in all_coinc_cols)
+                st.markdown(f"**Columnas de coincidencia** (siempre incluidas): {fixed_label}")
+
+            if optional_cols:
+                dl_extra_cols = st.multiselect(
+                    "Columnas adicionales a incluir en Coincidencias:",
+                    optional_cols,
+                    default=optional_cols,
+                    key="dl_extra_cols",
+                )
+            else:
+                dl_extra_cols = []
+
+        # Columnas finales para la hoja Coincidencias
+        fixed_cols = [c for c in key_col_names if c in coinc_con_calcs.columns]
+        final_coinc_cols = fixed_cols + [c for c in dl_extra_cols if c in coinc_con_calcs.columns]
+        coinc_export = coinc_con_calcs.drop(columns=["_merge"], errors="ignore")
+        if final_coinc_cols:
+            coinc_export = coinc_export[[c for c in final_coinc_cols if c in coinc_export.columns]]
+
+        # ── Métricas ──────────────────────────────────────────────────────────
+        st.success("Conciliación completada.")
+        n_metrics = 2 + (1 if show_solo_a else 0) + (1 if show_solo_b else 0)
+        m_cols = st.columns(n_metrics)
         mi = 0
         m_cols[mi].metric("Coincidencias", len(coincidencias)); mi += 1
         if show_solo_a:
@@ -457,29 +491,20 @@ else:
             m_cols[mi].metric(f"Solo en {sel_b}", len(solo_b)); mi += 1
         m_cols[mi].metric("Diferencias halladas", len(diferencias))
 
-        # Columnas calculadas
-        _render_calc_cols_section(coincidencias)
-
-        # Aplicar cálculos solo cuando el usuario presionó "▶️ Calcular columnas"
-        calc_defs = st.session_state.get("calc_definitions", [])
-        if calc_defs and st.session_state.get("calc_applied"):
-            coinc_con_calcs = _apply_calc_cols(coincidencias, calc_defs)
-        else:
-            coinc_con_calcs = coincidencias
-
-        # Vista previa
+        # ── Vista previa ───────────────────────────────────────────────────────
         tab_names = ["Coincidencias"]
         if show_solo_a:
             tab_names.append(f"Solo en {sel_a}")
         if show_solo_b:
             tab_names.append(f"Solo en {sel_b}")
-        tab_names.append("Diferencias")
+        if inc_diffs:
+            tab_names.append("Diferencias")
 
         with st.expander("Vista previa de resultados", expanded=True):
             result_tabs = st.tabs(tab_names)
             ti = 0
             with result_tabs[ti]:
-                st.dataframe(coinc_con_calcs.head(10), use_container_width=True)
+                st.dataframe(coinc_export.head(10), use_container_width=True)
             ti += 1
             if show_solo_a:
                 with result_tabs[ti]:
@@ -489,36 +514,38 @@ else:
                 with result_tabs[ti]:
                     st.dataframe(solo_b.head(10), use_container_width=True)
                 ti += 1
-            with result_tabs[ti]:
-                if not diferencias.empty:
-                    st.dataframe(diferencias.head(10), use_container_width=True)
-                else:
-                    st.info("No se encontraron diferencias en las columnas seleccionadas.")
+            if inc_diffs:
+                with result_tabs[ti]:
+                    if not diferencias.empty:
+                        st.dataframe(diferencias.head(10), use_container_width=True)
+                    else:
+                        st.info("No se encontraron diferencias en las columnas seleccionadas.")
 
-        # Descarga
+        # ── Descarga ───────────────────────────────────────────────────────────
         try:
             output = BytesIO()
+            safe_name = (dl_filename.strip() or "conciliacion_resultado") + ".xlsx"
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                df_a_filtered.to_excel(writer, index=False, sheet_name=f"{sel_a} Original")
-                df_b.to_excel(writer, index=False, sheet_name=f"{sel_b} Original")
-                coinc_con_calcs.drop(columns=["_merge"], errors="ignore").to_excel(
-                    writer, index=False, sheet_name="Coincidencias"
-                )
+                coinc_export.to_excel(writer, index=False, sheet_name="Coincidencias")
+                if inc_diffs and not diferencias.empty:
+                    diferencias.to_excel(writer, index=False, sheet_name="Diferencias")
                 if show_solo_a:
                     solo_a.drop(columns=["_merge"], errors="ignore").to_excel(
-                        writer, index=False, sheet_name=f"Solo en {sel_a}"[:31]
+                        writer, index=False, sheet_name=f"Solo {sel_a}"[:31]
                     )
                 if show_solo_b:
                     solo_b.drop(columns=["_merge"], errors="ignore").to_excel(
-                        writer, index=False, sheet_name=f"Solo en {sel_b}"[:31]
+                        writer, index=False, sheet_name=f"Solo {sel_b}"[:31]
                     )
-                if not diferencias.empty:
-                    diferencias.to_excel(writer, index=False, sheet_name="Diferencias")
+                if inc_orig_a:
+                    df_a_filtered.to_excel(writer, index=False, sheet_name=f"{sel_a} Original"[:31])
+                if inc_orig_b:
+                    df_b.to_excel(writer, index=False, sheet_name=f"{sel_b} Original"[:31])
 
             st.download_button(
                 "📥 Descargar Reporte de Conciliación",
                 output.getvalue(),
-                "conciliacion_resultado.xlsx",
+                safe_name,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         except Exception:
