@@ -223,7 +223,7 @@ def _reset_filters_if_table_changed(table_key: str):
             st.session_state.pop(k, None)
         st.session_state["logic"] = "AND"
 
-''' Comentado por el momento ya que no esta actualizado y molesta. Luego verlo
+#Comentado por el momento ya que no esta actualizado y molesta. Luego verlo
 def _help_text():
     with st.expander("ℹ️ ¿Cómo usar los filtros?"):
         st.markdown("""
@@ -236,7 +236,7 @@ def _help_text():
 - **Y** → se cumplen TODAS las condiciones
 - **O** → se cumple AL MENOS una
         """)
-'''
+
 
 
 # ── Carga de archivos ──────────────────────────────────────────────────────────
