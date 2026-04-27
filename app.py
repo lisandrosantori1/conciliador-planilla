@@ -1,6 +1,7 @@
 import logging
 from io import BytesIO
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -19,60 +20,48 @@ st.title("Conciliador General de Planillas")
 st.markdown("Cargá entre 1 y 4 planillas para filtrar datos o buscar coincidencias.")
 
 TYPE_LABELS = {"str": "Texto", "int": "Número entero", "float": "Número decimal", "date": "Fecha"}
+CALC_OPS = ["×", "+", "-", "÷"]
 
 # ── Inicializar estado ─────────────────────────────────────────────────────────
 if "n_tables" not in st.session_state:
     st.session_state.n_tables = 2
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _render_file_loader(label: str, col_key: str):
-    """Uploader con selector de hoja y separador decimal. Retorna (df, decimal)."""
     file = st.file_uploader(label, type=accepted_extensions(), key=f"file_{col_key}")
     if file is None:
         return None, "."
-
     decimal = "."
     if file.name.lower().endswith(".csv"):
         decimal = st.radio(
-            "Separador decimal",
-            [".", ","],
-            horizontal=True,
-            key=f"decimal_{col_key}",
+            "Separador decimal", [".", ","], horizontal=True, key=f"decimal_{col_key}",
             format_func=lambda x: f'Punto "." (ej: 1.50)' if x == "." else f'Coma "," (ej: 1,50)',
         )
-
     sheet = None
     if file.name.lower().endswith((".xlsx", ".xls", ".xlsm", ".xlsb")):
         sheets = get_excel_sheets(file.getvalue(), file.name)
         sheet = st.selectbox("Seleccionar hoja", sheets, key=f"sheet_{col_key}")
         if len(sheets) > 1:
             st.caption("📄 Este archivo tiene múltiples hojas")
-
     df = load_dataframe(file.getvalue(), file.name, sheet=sheet, decimal=decimal)
     return df, decimal
 
 
 def _render_type_overrides(df, detected: dict, state_key: str, file_key: str):
-    """Grilla de selectboxes para corregir tipos de columnas detectados."""
     if st.session_state.get(f"_fk_{state_key}") != file_key:
         st.session_state[f"_fk_{state_key}"] = file_key
         st.session_state[state_key] = dict(detected)
-
     overrides = st.session_state[state_key]
-    cols_per_row = 4
-
-    for i in range(0, len(df.columns), cols_per_row):
-        row_cols = list(df.columns)[i:i + cols_per_row]
-        ui_cols = st.columns(cols_per_row)
+    for i in range(0, len(df.columns), 4):
+        row_cols = list(df.columns)[i:i + 4]
+        ui_cols = st.columns(4)
         for j, col_name in enumerate(row_cols):
             with ui_cols[j]:
                 current = overrides.get(col_name, detected[col_name])
                 new_type = st.selectbox(
-                    f"**{col_name}**",
-                    VALID_TYPES,
-                    index=VALID_TYPES.index(current),
+                    f"**{col_name}**", VALID_TYPES, index=VALID_TYPES.index(current),
                     format_func=lambda t, c=col_name: (
                         f"{TYPE_LABELS[t]} ✏️" if t != detected.get(c) else TYPE_LABELS[t]
                     ),
@@ -84,15 +73,13 @@ def _render_type_overrides(df, detected: dict, state_key: str, file_key: str):
 
 
 def _apply_filters(df, rules, logic, col_types):
-    """Aplica reglas de filtrado sobre un DataFrame."""
     if not rules:
         return df
     mask = None
     for r in rules:
         m = apply_rule(
-            df[r["col"]], r["condition"],
-            r.get("value"), r.get("value2"),
-            dtype=col_types.get(r["col"], "str")
+            df[r["col"]], r["condition"], r.get("value"), r.get("value2"),
+            dtype=col_types.get(r["col"], "str"),
         )
         if m is None:
             continue
@@ -100,11 +87,112 @@ def _apply_filters(df, rules, logic, col_types):
     return df[mask] if mask is not None else df
 
 
+def _apply_calc_cols(df: pd.DataFrame, defs: list) -> pd.DataFrame:
+    """Agrega columnas calculadas al DataFrame según las definiciones."""
+    if not defs:
+        return df
+    result = df.copy()
+    for d in defs:
+        c1, c2, op, name = d.get("col1"), d.get("col2"), d.get("op", "×"), d.get("name", "")
+        if not name or c1 not in result.columns or c2 not in result.columns:
+            continue
+        try:
+            a = pd.to_numeric(result[c1], errors="coerce")
+            b = pd.to_numeric(result[c2], errors="coerce")
+            if op == "×":
+                result[name] = a * b
+            elif op == "+":
+                result[name] = a + b
+            elif op == "-":
+                result[name] = a - b
+            elif op == "÷":
+                result[name] = np.where(b != 0, a / b, np.nan)
+        except Exception:
+            logger.exception(f"Error calculando columna '{name}'")
+    return result
+
+
+def _render_calc_cols_section(coinc: pd.DataFrame):
+    """UI para definir columnas calculadas sobre las coincidencias."""
+    numeric_cols = [
+        c for c in coinc.columns
+        if c != "_merge" and pd.api.types.is_numeric_dtype(coinc[c])
+    ]
+
+    with st.container(border=True):
+        st.markdown("#### 🔢 Columnas calculadas — agregar a Coincidencias (opcional)")
+        st.caption(
+            "Definí operaciones entre columnas numéricas del resultado. "
+            "Ejemplo: Cantidad × Precio unitario → Precio total."
+        )
+
+        if not numeric_cols:
+            st.info("No hay columnas numéricas disponibles en Coincidencias.")
+            return
+
+        if "calc_definitions" not in st.session_state:
+            st.session_state["calc_definitions"] = []
+
+        defs = st.session_state["calc_definitions"]
+
+        if defs:
+            h1, h2, h3, h4, _ = st.columns([3, 1, 3, 3, 1])
+            h1.caption("Columna 1")
+            h2.caption("Op.")
+            h3.caption("Columna 2")
+            h4.caption("Nombre del resultado")
+
+        to_delete = []
+        for i, d in enumerate(defs):
+            c1, c2, c3, c4, c5 = st.columns([3, 1, 3, 3, 1])
+            with c1:
+                d["col1"] = st.selectbox(
+                    "", numeric_cols,
+                    index=numeric_cols.index(d["col1"]) if d["col1"] in numeric_cols else 0,
+                    key=f"cd_c1_{i}", label_visibility="collapsed",
+                )
+            with c2:
+                d["op"] = st.selectbox(
+                    "", CALC_OPS,
+                    index=CALC_OPS.index(d.get("op", "×")),
+                    key=f"cd_op_{i}", label_visibility="collapsed",
+                )
+            with c3:
+                d["col2"] = st.selectbox(
+                    "", numeric_cols,
+                    index=numeric_cols.index(d["col2"]) if d["col2"] in numeric_cols else 0,
+                    key=f"cd_c2_{i}", label_visibility="collapsed",
+                )
+            with c4:
+                d["name"] = st.text_input(
+                    "", value=d.get("name", f"Calculada_{i + 1}"),
+                    key=f"cd_name_{i}", label_visibility="collapsed",
+                    placeholder="Ej: Precio total",
+                )
+            with c5:
+                st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
+                if st.button("❌", key=f"cd_del_{i}"):
+                    to_delete.append(i)
+
+        for i in reversed(to_delete):
+            defs.pop(i)
+            st.rerun()
+
+        if st.button("➕ Agregar columna calculada", key="calc_add"):
+            defs.append({
+                "col1": numeric_cols[0],
+                "op": "×",
+                "col2": numeric_cols[min(1, len(numeric_cols) - 1)],
+                "name": f"Calculada_{len(defs) + 1}",
+            })
+            st.rerun()
+
+
 def _reset_filters_if_table_changed(table_key: str):
-    """Limpia reglas y mapeo cuando el usuario cambia la tabla seleccionada."""
     if st.session_state.get("_active_table_key") != table_key:
         st.session_state["_active_table_key"] = table_key
-        for k in ("rules", "current_rule", "key_mappings", "compare_mappings"):
+        for k in ("rules", "current_rule", "key_mappings", "compare_mappings",
+                  "concil_results", "calc_definitions"):
             st.session_state.pop(k, None)
         st.session_state["logic"] = "AND"
 
@@ -125,7 +213,7 @@ def _help_text():
 
 # ── Carga de archivos ──────────────────────────────────────────────────────────
 n = st.session_state.n_tables
-loaded_tables = []  # lista de {"idx", "label", "df"}
+loaded_tables = []
 
 for row_start in range(0, n, 2):
     slots = min(2, n - row_start)
@@ -138,7 +226,6 @@ for row_start in range(0, n, 2):
             if df is not None and not df.empty:
                 loaded_tables.append({"idx": idx, "label": f"Tabla {idx + 1}", "df": df})
 
-# Botones agregar / quitar tabla
 btn1, btn2, _ = st.columns([1, 1, 8])
 with btn1:
     if n < 4 and st.button("➕ Tabla", help="Agregar una tabla más (máx. 4)"):
@@ -169,7 +256,6 @@ global_file_key = "_".join(
     for t in loaded_tables
 )
 
-# ── Override de tipos ──────────────────────────────────────────────────────────
 with st.expander("🔧 Corregir tipos de datos detectados (opcional)"):
     st.caption("El ✏️ indica columnas modificadas manualmente.")
     type_tabs = st.tabs([t["label"] for t in loaded_tables])
@@ -177,10 +263,8 @@ with st.expander("🔧 Corregir tipos de datos detectados (opcional)"):
     for tab_widget, table in zip(type_tabs, loaded_tables):
         with tab_widget:
             col_types_all[table["idx"]] = _render_type_overrides(
-                table["df"],
-                detected_all[table["idx"]],
-                f"overrides_t{table['idx']}",
-                global_file_key,
+                table["df"], detected_all[table["idx"]],
+                f"overrides_t{table['idx']}", global_file_key,
             )
 
 st.divider()
@@ -197,7 +281,6 @@ if len(loaded_tables) == 1:
 
     st.subheader("🔍 Modo filtro — una sola planilla")
     st.caption("Aplicá filtros para encontrar y descargar registros específicos.")
-
     _help_text()
 
     rules, logic = rule_builder(df, col_types)
@@ -211,15 +294,12 @@ if len(loaded_tables) == 1:
         resultado = _apply_filters(df, rules, logic, col_types)
         st.success(f"Mostrando {len(resultado):,} de {len(df):,} registros")
         st.dataframe(resultado, use_container_width=True)
-
         try:
             output = BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 resultado.to_excel(writer, index=False, sheet_name="Resultados")
             st.download_button(
-                "📥 Descargar resultado",
-                output.getvalue(),
-                "resultado_filtrado.xlsx",
+                "📥 Descargar resultado", output.getvalue(), "resultado_filtrado.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
         except Exception:
@@ -233,7 +313,6 @@ else:
     labels = [t["label"] for t in loaded_tables]
     table_by_label = {t["label"]: t for t in loaded_tables}
 
-    # Selector de tablas A y B
     with st.container(border=True):
         st.markdown("#### Seleccionar tablas a conciliar")
         c1, c2 = st.columns(2)
@@ -244,10 +323,8 @@ else:
             cur_b = st.session_state.get("sel_b_val")
             default_b = cur_b if cur_b in opts_b else opts_b[0]
             sel_b = st.selectbox(
-                "Tabla B — destino / comparación",
-                opts_b,
-                index=opts_b.index(default_b),
-                key="sel_b_val",
+                "Tabla B — destino / comparación", opts_b,
+                index=opts_b.index(default_b), key="sel_b_val",
             )
 
     table_a = table_by_label[sel_a]
@@ -256,7 +333,6 @@ else:
     df_b = table_b["df"]
     col_types = col_types_all[table_a["idx"]]
 
-    # Reset de reglas y mapeo si cambia la selección de tablas
     active_key = f"recon-{table_a['idx']}-{table_b['idx']}-{global_file_key}"
     _reset_filters_if_table_changed(active_key)
 
@@ -264,7 +340,6 @@ else:
         st.error("Una de las tablas seleccionadas está vacía.")
         st.stop()
 
-    # Filtros sobre Tabla A
     _help_text()
     st.subheader("Filtros avanzados")
     rules, logic = rule_builder(df_a, col_types)
@@ -274,36 +349,28 @@ else:
     else:
         st.success(f"🔍 Aplicando {len(rules)} filtro(s) con lógica '{logic}'")
 
-    # Mapeo de columnas
     mapper_key = f"a{table_a['idx']}-b{table_b['idx']}-{df_a.shape}-{df_b.shape}-{list(df_a.columns)[:5]}"
     st.divider()
     key_mappings, compare_mappings = column_mapper(df_a, df_b, mapper_key)
 
-    # Opciones de resultado (antes del botón)
+    # Opciones de resultado
     with st.container(border=True):
         st.caption("Incluir en resultados y descarga:")
         oc1, oc2 = st.columns(2)
         with oc1:
             show_solo_a = st.checkbox(
-                f"Registros solo en {sel_a}",
-                value=False,
-                key="show_solo_a",
-                help=f"Filas que existen en {sel_a} pero no tienen coincidencia en {sel_b}",
+                f"Registros solo en {sel_a}", value=False, key="show_solo_a",
+                help=f"Filas de {sel_a} sin coincidencia en {sel_b}",
             )
         with oc2:
             show_solo_b = st.checkbox(
-                f"Registros solo en {sel_b}",
-                value=False,
-                key="show_solo_b",
-                help=f"Filas que existen en {sel_b} pero no tienen coincidencia en {sel_a}",
+                f"Registros solo en {sel_b}", value=False, key="show_solo_b",
+                help=f"Filas de {sel_b} sin coincidencia en {sel_a}",
             )
 
     if st.button("Ejecutar Conciliación", type="primary") and key_mappings:
-
-        # Aplicar filtros a df_a
         df_a_filtered = _apply_filters(df_a, rules, logic, col_types)
 
-        # Validar columnas mapeadas
         bad_a = [m["col_a"] for m in key_mappings + compare_mappings if m["col_a"] not in df_a_filtered.columns]
         bad_b = [m["col_b"] for m in key_mappings + compare_mappings if m["col_b"] not in df_b.columns]
         if bad_a:
@@ -322,15 +389,51 @@ else:
             st.error("Error durante la conciliación.")
             st.stop()
 
-        # Métricas (siempre se muestran los conteos)
-        st.success("Conciliación completada.")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Coincidencias", len(coincidencias))
-        m2.metric(f"Solo en {sel_a}", len(solo_a))
-        m3.metric(f"Solo en {sel_b}", len(solo_b))
-        m4.metric("Diferencias halladas", len(diferencias))
+        # Guardar resultados para persistir entre reruns
+        st.session_state["concil_results"] = {
+            "coincidencias": coincidencias,
+            "solo_a": solo_a,
+            "solo_b": solo_b,
+            "diferencias": diferencias,
+            "df_a_filtered": df_a_filtered,
+        }
+        st.session_state.pop("calc_definitions", None)  # reset cálculos al re-ejecutar
 
-        # Armar tabs según opciones seleccionadas
+    # ── Mostrar resultados (persisten entre reruns) ────────────────────────────
+    if "concil_results" in st.session_state:
+        res = st.session_state["concil_results"]
+        coincidencias = res["coincidencias"]
+        solo_a = res["solo_a"]
+        solo_b = res["solo_b"]
+        diferencias = res["diferencias"]
+        df_a_filtered = res["df_a_filtered"]
+
+        # Métricas: solo mostrar solo_a/solo_b si el checkbox está activo
+        st.success("Conciliación completada.")
+        metric_cols = ["Coincidencias"]
+        if show_solo_a:
+            metric_cols.append(f"Solo en {sel_a}")
+        if show_solo_b:
+            metric_cols.append(f"Solo en {sel_b}")
+        metric_cols.append("Diferencias halladas")
+
+        m_cols = st.columns(len(metric_cols))
+        mi = 0
+        m_cols[mi].metric("Coincidencias", len(coincidencias)); mi += 1
+        if show_solo_a:
+            m_cols[mi].metric(f"Solo en {sel_a}", len(solo_a)); mi += 1
+        if show_solo_b:
+            m_cols[mi].metric(f"Solo en {sel_b}", len(solo_b)); mi += 1
+        m_cols[mi].metric("Diferencias halladas", len(diferencias))
+
+        # Columnas calculadas
+        _render_calc_cols_section(coincidencias)
+
+        # Aplicar cálculos a coincidencias para preview y descarga
+        calc_defs = st.session_state.get("calc_definitions", [])
+        coinc_con_calcs = _apply_calc_cols(coincidencias, calc_defs)
+
+        # Vista previa
         tab_names = ["Coincidencias"]
         if show_solo_a:
             tab_names.append(f"Solo en {sel_a}")
@@ -342,7 +445,7 @@ else:
             result_tabs = st.tabs(tab_names)
             ti = 0
             with result_tabs[ti]:
-                st.dataframe(coincidencias.head(10), use_container_width=True)
+                st.dataframe(coinc_con_calcs.head(10), use_container_width=True)
             ti += 1
             if show_solo_a:
                 with result_tabs[ti]:
@@ -358,12 +461,13 @@ else:
                 else:
                     st.info("No se encontraron diferencias en las columnas seleccionadas.")
 
+        # Descarga
         try:
             output = BytesIO()
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 df_a_filtered.to_excel(writer, index=False, sheet_name=f"{sel_a} Original")
                 df_b.to_excel(writer, index=False, sheet_name=f"{sel_b} Original")
-                coincidencias.drop(columns=["_merge"], errors="ignore").to_excel(
+                coinc_con_calcs.drop(columns=["_merge"], errors="ignore").to_excel(
                     writer, index=False, sheet_name="Coincidencias"
                 )
                 if show_solo_a:
