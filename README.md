@@ -1,142 +1,124 @@
 # Conciliador de Planillas
 
-**Conciliador General de Planillas** es una aplicación web construida con Streamlit que compara dos archivos (planillas) para encontrar coincidencias, faltantes y diferencias. Ideal para procesos de reconciliación contable y administrativa.
-
-## 🎯 Características
-
-- 📊 Carga de archivos Excel (`.xlsx`) y CSV (`.csv`)
-- 🔍 Detección automática de tipos de datos
-- 📈 Comparación avanzada de tablas
-- 🏷️ Constructor de reglas personalizadas
-- 📋 Filtrado flexible de resultados
-- 📁 Soporte para múltiples hojas en Excel
-
-## 🚀 Inicio Rápido
-
-### Usando Docker Compose (Recomendado)
-
-```bash
-# Clonar el repositorio
-git clone https://github.com/tu-usuario/conciliador-planilla.git
-cd conciliador-planilla
-
-# Iniciar la aplicación
-docker-compose up
-
-# Acceder a la aplicación
-# http://localhost:8501
-```
-
-### Instalación Local
-
-```bash
-# Crear entorno virtual
-python -m venv venv
-source venv/bin/activate  # En Windows: venv\Scripts\activate
-
-# Instalar dependencias
-pip install -r requirements.txt.txt
-
-# Ejecutar la aplicación
-streamlit run app.py
-```
-
-## 📦 Dependencias
-
-- **streamlit** - Framework web interactivo
-- **pandas** - Procesamiento y análisis de datos
-- **numpy** - Computación numérica
-- **openpyxl** - Manejo de archivos Excel
-
-## 📁 Estructura del Proyecto
-
-```
-conciliador-planilla/
-├── app.py                          # Punto de entrada de la aplicación
-├── Dockerfile                      # Configuración Docker
-├── docker-compose.yml              # Orquestación de contenedores
-├── requirements.txt.txt            # Dependencias Python
-├── .streamlit/
-│   └── config.toml                # Configuración de Streamlit
-├── core/
-│   ├── comparator.py              # Lógica de comparación
-│   ├── dtype_detector.py          # Detección de tipos de datos
-│   ├── rule_labels.py             # Etiquetas de reglas
-│   └── rules.py                   # Motor de reglas
-├── ui/
-│   └── rule_builder.py            # Constructor de reglas
-├── utils/
-│   ├── file_loader.py             # Carga de archivos
-│   └── helpers.py                 # Funciones auxiliares
-├── tests/                          # Pruebas unitarias
-├── coverage/                       # Reportes de cobertura
-└── README.md                       # Este archivo
-```
-
-## 🐳 Docker
-
-### Build de la imagen
-
-```bash
-docker build -t conciliador-planilla:latest .
-```
-
-### Ejecutar contenedor
-
-```bash
-docker run -p 8501:8501 conciliador-planilla:latest
-```
-
-### Desarrollo con hot-reload
-
-```bash
-docker-compose up --build
-```
-
-## 💻 Uso
-
-1. **Subir Tabla A** - Carga el archivo de referencia (ej: Administración)
-2. **Subir Tabla B** - Carga el archivo a comparar (ej: Movimientos)
-3. **Configurar comparación** - Selecciona columnas clave y reglas
-4. **Revisar resultados** - Visualiza coincidencias, faltantes y diferencias
-5. **Descargar reporte** - Exporta los resultados en Excel
-
-## 🛠️ Desarrollo
-
-### Crear un entorno de desarrollo
-
-```bash
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt.txt
-```
-
-### Ejecutar tests
-
-```bash
-pytest tests/
-```
-
-### Generar reporte de cobertura
-
-```bash
-pytest --cov=core --cov=ui --cov=utils tests/
-```
-
-## 📝 Licencia
-
-Este proyecto está bajo licencia MIT. Ver archivo `LICENSE` para más detalles.
-
-## 👤 Autor
-
-**Lisandro Santori**
-
-- GitHub: [@tu-usuario](https://github.com/tu-usuario)
-
-## 📞 Soporte
-
-Para reportar errores o sugerir mejoras, abre un [issue](https://github.com/tu-usuario/conciliador-planilla/issues) en el repositorio.
+Aplicación web construida con **Streamlit** para comparar, filtrar y conciliar hasta 4 planillas de datos. Permite encontrar coincidencias, detectar diferencias y generar reportes descargables en Excel.
 
 ---
 
-**Última actualización:** Abril 2026
+## Características
+
+### Carga de archivos
+- Formatos soportados: `.xlsx`, `.xls` (Excel 97–2003), `.xlsm`, `.csv`
+- Selector de hoja para archivos Excel con múltiples pestañas
+- Separador decimal configurable para CSV (punto `.` o coma `,`)
+- Caché automático: recargar el mismo archivo no re-procesa los datos
+
+### Detección de tipos de datos
+- Detecta automáticamente: Texto, Número entero, Número decimal, Fecha
+- Muestrea hasta 15 valores no-nulos para mayor precisión
+- Reconoce números guardados como texto en Excel
+- Override manual: podés corregir el tipo detectado por columna
+
+### Filtros avanzados
+- Condiciones disponibles según tipo de dato:
+  - **Número**: igual, distinto, mayor, menor, entre
+  - **Texto**: contiene, empieza con, termina con, igual
+  - **Fecha**: antes de, después de, igual
+- Combinación de múltiples reglas con lógica **Y** (AND) u **O** (OR)
+
+### Mapeo de columnas
+- Columnas clave: elegís qué columna de cada tabla identifica las filas
+- Las columnas pueden tener distinto nombre en cada tabla
+- **Coincidencia aproximada (fuzzy)**: detecta variaciones con prefijos/sufijos
+  - Ejemplo: `46348199` coincide con `K46348199`
+- Columnas de comparación: detecta diferencias entre columnas mapeadas
+
+### Conciliación
+- Modos:
+  - **1 tabla**: filtrado y descarga de registros
+  - **2–4 tablas**: conciliación completa con selector de Tabla A y Tabla B
+- Resultados: Coincidencias, Diferencias, Solo en A, Solo en B
+- Normalización de decimales: `308743.8` y `308743,8` se tratan como igual
+
+### Columnas calculadas
+- Agregá columnas con operaciones entre columnas numéricas del resultado
+- Operaciones: multiplicación `×`, suma `+`, resta `−`, división `÷`
+- Preview de la fórmula antes de calcular
+- Se incluyen en la descarga Excel
+
+### Configuración de descarga
+- Nombre del archivo personalizado
+- Elegís qué hojas incluir: Coincidencias, Diferencias, Solo en A/B, tablas originales
+- Selector de columnas para la hoja Coincidencias (columnas clave siempre incluidas)
+
+---
+
+## Inicio rápido
+
+### Instalación local
+
+```bash
+git clone https://github.com/lisandrosantori1/conciliador-planilla.git
+cd conciliador-planilla
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+Accedé en `http://localhost:8501`
+
+### Docker (recomendado para producción)
+
+```bash
+# Primera vez (construye la imagen)
+docker compose up --build
+
+# Siguientes veces
+docker compose up -d
+
+# Ver logs
+docker logs -f conciliador
+
+# Detener
+docker compose down
+```
+
+---
+
+## Ejecutar tests
+
+```bash
+python -m pytest tests/ -v
+```
+
+---
+
+## Estructura del proyecto
+
+```
+conciliador-planilla/
+├── app.py                  # Aplicación principal Streamlit
+├── core/
+│   ├── comparator.py       # Lógica de conciliación y comparación
+│   ├── dtype_detector.py   # Detección automática de tipos de columna
+│   ├── rule_labels.py      # Etiquetas de reglas para la UI
+│   └── rules.py            # Motor de reglas de filtrado
+├── ui/
+│   ├── column_mapper.py    # Componente de mapeo de columnas A↔B
+│   └── rule_builder.py     # Constructor visual de reglas
+├── utils/
+│   └── file_loader.py      # Carga de archivos con caché
+├── tests/
+│   ├── test_comparator.py
+│   ├── test_dtype_detector.py
+│   └── test_rules.py
+├── proceso-uso.txt         # Guía de uso detallada con ejemplos
+├── requirements.txt
+├── Dockerfile
+└── docker-compose.yml
+```
+
+---
+
+## Requisitos
+
+- Python 3.11+
+- Ver `requirements.txt` para dependencias completas

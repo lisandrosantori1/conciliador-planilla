@@ -1,4 +1,311 @@
 PROCESOS DE USO - CONCILIADOR DE PLANILLAS
 ==========================================
+Última actualización: 2026-04
 
-(documento en construcción - se irá completando con cada nueva funcionalidad)
+
+═══════════════════════════════════════════════════════
+1. CARGA DE ARCHIVOS
+═══════════════════════════════════════════════════════
+
+La pantalla principal muestra 2 cargadores de archivos (Tabla 1 y Tabla 2).
+Se pueden agregar hasta 4 con el botón "➕ Tabla".
+
+Formatos aceptados:
+  - Excel: .xlsx, .xls (Excel 97-2003), .xlsm
+  - CSV: .csv
+
+Opciones al cargar:
+  - Si el Excel tiene varias hojas, aparece un selector de hoja
+  - Si es CSV, elegís el separador decimal: Punto "." (1.50) o Coma "," (1,50)
+
+Ejemplo de situación:
+  Tenés dos planillas:
+    - administracion.xlsx (hoja "Enero 2024") → cargás como Tabla 1
+    - movimientos.csv con decimales europeos (1234,56) → cargás como Tabla 2,
+      seleccionás separador decimal "Coma"
+
+
+═══════════════════════════════════════════════════════
+2. CORRECCIÓN DE TIPOS DE DATOS
+═══════════════════════════════════════════════════════
+
+El sistema detecta automáticamente el tipo de cada columna:
+  - Texto (str): nombres, códigos alfanuméricos
+  - Número entero (int): cantidades, IDs numéricos
+  - Número decimal (float): precios, montos
+  - Fecha (date): fechas en formato DD/MM/AAAA, AAAA-MM-DD, etc.
+
+Si la detección es incorrecta, usá el expander "🔧 Corregir tipos de datos":
+  - Abrís la pestaña de la tabla que querés corregir (Tabla 1, Tabla 2, etc.)
+  - Cada columna tiene un selector desplegable con los 4 tipos
+  - Las columnas modificadas muestran ✏️
+
+Ejemplo de situación:
+  La columna "Código cliente" tiene valores como "20123254" y el sistema
+  la detectó como "Número entero". Si hay códigos con letras en otras filas
+  (ej: "1284759AC"), cambiás el tipo a "Texto" para que el sistema trate
+  todos los códigos como texto al filtrar y comparar.
+
+
+═══════════════════════════════════════════════════════
+3. MODO FILTRO (una sola tabla cargada)
+═══════════════════════════════════════════════════════
+
+Si solo cargaste una tabla, el sistema entra en "Modo filtro":
+  1. Creás reglas de filtro (ver sección 4)
+  2. Hacés clic en "Aplicar filtros"
+  3. Ves los registros que cumplen las condiciones
+  4. Descargás el resultado en Excel
+
+Ejemplo:
+  Tabla: ventas_enero.xlsx
+  Filtro: columna "Monto" mayor que 5000
+  Resultado: solo las ventas de más de $5000
+
+
+═══════════════════════════════════════════════════════
+4. FILTROS AVANZADOS
+═══════════════════════════════════════════════════════
+
+Cómo crear una regla:
+  1. Hacé clic en "➕ Agregar regla"
+  2. Elegí la COLUMNA sobre la que filtrar
+  3. Elegí la CONDICIÓN según el tipo de dato:
+
+  Número entero / decimal:
+    - "Igual a"       → busca ese valor exacto
+    - "Mayor que"     → todos los valores superiores
+    - "Menor que"     → todos los valores inferiores
+    - "Entre"         → rango desde/hasta (inclusivo)
+
+  Texto:
+    - "Contiene texto" → busca la cadena en cualquier posición (sin distinción de mayúsculas)
+    - "Empieza con"    → el valor comienza con ese texto
+    - "Termina con"    → el valor termina con ese texto
+    - "Igual a"        → coincidencia exacta
+
+  Fecha:
+    - "Antes de (fecha)" → fechas anteriores a la indicada
+    - "Después de (fecha)" → fechas posteriores
+    - "Igual a"          → fecha exacta (también hay atajos: Hoy, Ayer, Este mes, Mes pasado)
+
+  4. Ingresá el VALOR
+  5. Hacé clic en "✅ Aplicar"
+
+Combinar reglas:
+  - Selector "Y" (AND): se deben cumplir TODAS las reglas
+  - Selector "O" (OR): alcanza con que se cumpla UNA
+
+Ejemplos:
+  a) Buscar clientes llamados "García":
+     Columna: Nombre | Condición: Contiene texto | Valor: García
+
+  b) Buscar ventas de febrero de más de $1000:
+     Regla 1: Fecha | Después de | 2024-01-31
+     Regla 2: Monto | Mayor que | 1000
+     Lógica: Y
+
+  c) Buscar registros de "García" o "López":
+     Regla 1: Nombre | Contiene texto | García
+     Regla 2: Nombre | Contiene texto | López
+     Lógica: O
+
+Las reglas en "Reglas actuales" se pueden editar directamente o eliminar con ❌.
+
+
+═══════════════════════════════════════════════════════
+5. MAPEO DE COLUMNAS (conciliación con 2+ tablas)
+═══════════════════════════════════════════════════════
+
+Con 2 o más tablas cargadas, primero elegís:
+  - "Tabla A — origen / referencia": la tabla principal
+  - "Tabla B — destino / comparación": la tabla contra la que comparás
+
+Luego configurás los mapeos en dos secciones:
+
+--- COLUMNAS CLAVE (identifican coincidencias) ---
+
+Cada fila define qué columna de Tabla A corresponde a qué columna de Tabla B.
+Las columnas pueden tener nombres distintos en cada tabla.
+
+  Tabla A        ↔  Tabla B
+  [DNI        ]     [Documento  ]
+  [Código Item]     [ID Producto]
+
+Opción "Aproximado":
+  Si los valores tienen variaciones (prefijos, sufijos), tildás "Aproximado"
+  para que el sistema busque coincidencias por contenido.
+
+  Ejemplos de valores que coinciden con Aproximado activado:
+    "46348199"    ↔  "K46348199"   (la B tiene prefijo K)
+    "K68225187AB" ↔  "68225187AB"  (la A tiene prefijo K)
+    "04589914AF " ↔  "K04589914AF" (espacios + prefijo K)
+
+  Nota: se requiere mínimo 3 caracteres para evitar falsos positivos.
+
+--- COLUMNAS A COMPARAR (detectan diferencias) ---
+
+Opcional. Agregás pares de columnas para ver si sus valores difieren
+entre los registros que coincidieron.
+
+  Tabla A        ↔  Tabla B
+  [Precio     ]     [Monto      ]
+
+En los resultados, "Diferencias" muestra los registros coincidentes donde
+el valor de la columna A difiere del de la columna B.
+
+Normalización decimal en comparaciones:
+  "308743.8" y "308743,8" se consideran iguales (mismo número, distinto
+  separador decimal). Aplica tanto para coincidencias como para diferencias.
+
+
+═══════════════════════════════════════════════════════
+6. EJECUTAR CONCILIACIÓN
+═══════════════════════════════════════════════════════
+
+Antes de ejecutar podés configurar qué hojas queres en la descarga
+(ver sección 8).
+
+Hacé clic en "Ejecutar Conciliación".
+
+El sistema genera 4 grupos de resultados:
+  - Coincidencias: registros que existen en ambas tablas
+  - Solo en Tabla A: registros que están en A pero no en B
+  - Solo en Tabla B: registros que están en B pero no en A
+  - Diferencias: registros coincidentes con valores distintos en columnas comparadas
+
+Las métricas muestran el conteo de cada grupo.
+"Solo en A" y "Solo en B" solo aparecen en las métricas si tildás su checkbox.
+
+
+═══════════════════════════════════════════════════════
+7. COLUMNAS CALCULADAS
+═══════════════════════════════════════════════════════
+
+Después de ejecutar, aparece la sección "🔢 Columnas calculadas".
+Permite agregar columnas nuevas al resultado de Coincidencias.
+
+Cómo usarlo:
+  1. Hacé clic en "➕ Agregar columna calculada"
+  2. Elegí la Columna 1 (de cualquier tabla)
+  3. Elegí la operación: × + - ÷
+  4. Elegí la Columna 2 (de cualquier tabla)
+  5. Escribí el nombre de la columna resultado
+  6. Podés agregar múltiples filas
+  7. Hacé clic en "▶️ Calcular columnas" para aplicar
+
+Debajo de cada fila aparece el preview de la fórmula:
+  → precio_total = cantidad × precio_unitario
+
+Las columnas calculadas aparecen en la vista previa y en la descarga.
+Si dividís por 0, el resultado queda en blanco (NaN).
+
+Ejemplo:
+  Tabla A tiene "Cantidad" (int)
+  Tabla B tiene "Precio_Unit" (float)
+  Columna calculada: "Precio Total" = Cantidad × Precio_Unit
+
+
+═══════════════════════════════════════════════════════
+8. CONFIGURACIÓN DE DESCARGA
+═══════════════════════════════════════════════════════
+
+Abrí el expander "⚙️ Configuración de descarga" antes de descargar.
+
+Opciones disponibles:
+
+  Nombre del archivo:
+    Escribís el nombre sin extensión. El archivo se descarga como .xlsx
+    Ejemplo: "conciliacion_enero_2024" → conciliacion_enero_2024.xlsx
+
+  Hojas a incluir (Coincidencias siempre se incluye):
+    ☑ Diferencias             (activado por defecto)
+    ☐ Solo en Tabla 1         (desactivado por defecto)
+    ☐ Solo en Tabla 2         (desactivado por defecto)
+    ☐ Tabla 1 Original        (desactivado por defecto)
+    ☐ Tabla 2 Original        (desactivado por defecto)
+
+  Columnas en Coincidencias:
+    Las columnas de coincidencia (claves del mapeo) siempre se incluyen.
+    Las demás columnas aparecen en un selector múltiple para que puedas
+    deseleccionar las que no necesitás.
+
+Hacé clic en "📥 Descargar Reporte de Conciliación" para obtener el Excel.
+
+
+═══════════════════════════════════════════════════════
+9. FLUJOS COMPLETOS DE EJEMPLO
+═══════════════════════════════════════════════════════
+
+--- EJEMPLO A: Conciliación de facturas vs. pagos ---
+
+Situación:
+  - facturas.xlsx: columnas DNI, Número_Factura, Monto_Facturado
+  - pagos.csv: columnas Documento, Nro_Recibo, Importe_Pagado (decimales con coma)
+
+Pasos:
+  1. Cargá facturas.xlsx como Tabla 1
+  2. Cargá pagos.csv como Tabla 2, separador decimal "Coma"
+  3. En "Corregir tipos": verificá que Monto y Importe sean "Número decimal"
+  4. Columna clave: DNI (Tabla 1) ↔ Documento (Tabla 2)
+  5. Columna a comparar: Monto_Facturado ↔ Importe_Pagado
+  6. En "Configuración de descarga": activá "Diferencias" y poné nombre "conciliacion_facturas_pagos"
+  7. Ejecutar Conciliación
+  8. Las Diferencias muestran DNIs donde el monto facturado ≠ importe pagado
+
+--- EJEMPLO B: Búsqueda por código con prefijo variable ---
+
+Situación:
+  - sistema_A.xlsx: columna Codigo con valores "46348199", "68225187"
+  - sistema_B.xlsx: columna ID con valores "K46348199", "K68225187"
+
+Pasos:
+  1. Cargá ambas tablas
+  2. Columna clave: Codigo (Tabla 1) ↔ ID (Tabla 2), tildá "Aproximado"
+  3. Los registros coinciden aunque uno tenga prefijo K y el otro no
+
+--- EJEMPLO C: Filtrar y descargar registros específicos ---
+
+Situación: Querés exportar solo las ventas de un vendedor específico
+  con monto mayor a $10.000
+
+Pasos:
+  1. Cargá ventas.xlsx como única tabla (modo filtro)
+  2. Filtro 1: Vendedor | Contiene texto | García
+  3. Filtro 2: Monto | Mayor que | 10000
+  4. Lógica: Y
+  5. "Aplicar filtros" → muestra los registros filtrados
+  6. "📥 Descargar resultado" → descargás solo esos registros
+
+--- EJEMPLO D: Calcular precio total en coincidencias ---
+
+Situación: Conciliación encontró coincidencias entre una tabla de
+  stock (con Cantidad) y una de precios (con Precio_Unit).
+  Querés agregar el total al reporte.
+
+Pasos:
+  1. Ejecutar la conciliación
+  2. En "🔢 Columnas calculadas" → Agregar columna calculada
+  3. Columna 1: Cantidad | × | Columna 2: Precio_Unit | Nombre: Precio_Total
+  4. "▶️ Calcular columnas"
+  5. La columna "Precio_Total" aparece en el resultado y en la descarga
+
+
+═══════════════════════════════════════════════════════
+10. COMANDOS PARA EJECUTAR LA APLICACIÓN
+═══════════════════════════════════════════════════════
+
+Ejecución local:
+  streamlit run app.py
+
+Docker (primera vez):
+  docker compose up --build
+
+Docker (siguientes veces):
+  docker compose up -d
+
+Docker (ver logs):
+  docker logs -f conciliador
+
+Tests:
+  python -m pytest tests/ -v
