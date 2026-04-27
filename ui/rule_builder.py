@@ -104,7 +104,7 @@ def rule_builder(df, col_types):
     """Renderiza el constructor de reglas y retorna (rules, logic)."""
     _init_session_state(df)
 
-    st.subheader("🧠 Constructor de reglas")
+    st.markdown("## 🧠 Constructor de reglas")
 
     logic_map = {"Y": "AND", "O": "OR"}
     logic_label = st.segmented_control(
