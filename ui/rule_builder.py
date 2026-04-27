@@ -187,6 +187,7 @@ def rule_builder(df, col_types):
             "**condición** o **valor**, o **eliminarlas** con el botón ❌. "
             "Hay ejemplo debajo del valor para cada tipo de dato."
         )
+        st.write("")
 
     for i, r in enumerate(st.session_state.rules):
         col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
