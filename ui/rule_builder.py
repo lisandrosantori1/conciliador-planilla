@@ -104,7 +104,7 @@ def rule_builder(df, col_types):
     """Renderiza el constructor de reglas y retorna (rules, logic)."""
     _init_session_state(df)
 
-    st.subheader("🧠 Constructor de reglas")
+    st.markdown("## 🧠 Constructor de reglas")
 
     logic_map = {"Y": "AND", "O": "OR"}
     logic_label = st.segmented_control(
@@ -117,7 +117,8 @@ def rule_builder(df, col_types):
     st.session_state.logic = logic_map[logic_label]
 
     with st.container(border=True):
-        st.markdown("### ➕ Nueva regla")
+        st.markdown("### Nueva regla de filtro por columna")
+        st.caption("Seleccioná una columna, la condición y el valor para filtrar registros.")
         if st.button("➕ Agregar regla"):
             st.session_state.current_rule = {
                 "col": df.columns[0],
@@ -130,7 +131,7 @@ def rule_builder(df, col_types):
 
     if rule:
         with st.container(border=True):
-            st.warning("🆕 Regla en edición")
+            st.info("✏️ Configurá la regla: elegí columna → condición → valor, luego **✅ Aplicar**.")
 
         col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
 
@@ -179,95 +180,101 @@ def rule_builder(df, col_types):
                 else:
                     st.error("Completa la regla antes de aplicarla")
 
+
     with st.container(border=True):
-        st.markdown("### 📋 Reglas actuales")
+        st.markdown("#### 📋 Reglas actuales")
+        st.markdown(
+            "Podés **editarlas** haciendo clic en la **columna**, **condición** o **valor**. "
+            "Usá ❌ para eliminar una regla. "
+            "Debajo de cada campo de valor hay un ejemplo del formato esperado."
+        )
 
-    for i, r in enumerate(st.session_state.rules):
-        col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+        for i, r in enumerate(st.session_state.rules):
+            col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
 
-        with col1:
-            prev_col = r["col"]
-            r["col"] = st.selectbox(
-                "Columna", df.columns,
-                index=list(df.columns).index(r["col"]),
-                key=f"rule_{r['id']}_col"
-            )
+            with col1:
+                prev_col = r["col"]
+                r["col"] = st.selectbox(
+                    "Columna", df.columns,
+                    index=list(df.columns).index(r["col"]),
+                    key=f"rule_{r['id']}_col"
+                )
 
-            if r["col"] != prev_col:
-                if "current_date_mode" in st.session_state:
-                    del st.session_state["current_date_mode"]
+                if r["col"] != prev_col:
+                    if "current_date_mode" in st.session_state:
+                        del st.session_state["current_date_mode"]
+                    dtype = col_types[r["col"]]
+                    r["value"] = ""
+                    r["value2"] = ""
+                    r["status"] = "nueva"
+                    r["condition"] = "equals" if dtype in ["int", "float", "date"] else "contains"
+                    st.session_state.filters_applied = False
+
+                r["status"] = "nueva"
+
+            with col2:
                 dtype = col_types[r["col"]]
-                r["value"] = ""
-                r["value2"] = ""
-                r["status"] = "nueva"
-                r["condition"] = "equals" if dtype in ["int", "float", "date"] else "contains"
-                st.session_state.filters_applied = False
-
-            r["status"] = "nueva"
-
-        with col2:
-            dtype = col_types[r["col"]]
-            options = _get_options_for_dtype(dtype)
-            labels = [RULE_LABELS[o] for o in options]
-            selected_label = st.selectbox(
-                "Requisito", labels,
-                index=labels.index(RULE_LABELS[r["condition"]]) if r["condition"] in RULE_LABELS and RULE_LABELS[r["condition"]] in labels else 0,
-                key=f"rule_{r['id']}_cond"
-            )
-            r["condition"] = RULE_LABELS_INV[selected_label]
-            st.session_state.filters_applied = False
-            r["status"] = "nueva"
-
-        with col3:
-            dtype = col_types[r["col"]]
-            condition = r["condition"]
-
-            if condition == "between":
-                col3a, col3b = st.columns(2)
-                st.caption("Ej: desde 100 hasta 500")
-                with col3a:
-                    val1 = st.text_input("Desde", value=r.get("value", ""), key=f"rule_{i}_val1")
-                with col3b:
-                    val2 = st.text_input("Hasta", value=r.get("value2", ""), key=f"rule_{i}_val2")
-                r["value"] = val1
-                r["value2"] = val2
+                options = _get_options_for_dtype(dtype)
+                labels = [RULE_LABELS[o] for o in options]
+                selected_label = st.selectbox(
+                    "Requisito", labels,
+                    index=labels.index(RULE_LABELS[r["condition"]]) if r["condition"] in RULE_LABELS and RULE_LABELS[r["condition"]] in labels else 0,
+                    key=f"rule_{r['id']}_cond"
+                )
+                r["condition"] = RULE_LABELS_INV[selected_label]
                 st.session_state.filters_applied = False
                 r["status"] = "nueva"
 
-            elif dtype == "int":
-                r["value"] = st.number_input(
-                    "Valor",
-                    value=int(r["value"]) if str(r["value"]).isdigit() else 0,
-                    step=1,
-                    key=f"rule_{r['id']}_val"
-                )
-                st.caption("Ej: 100, 2500")
+            with col3:
+                dtype = col_types[r["col"]]
+                condition = r["condition"]
 
-            elif dtype == "float":
-                r["value"] = st.number_input(
-                    "Valor",
-                    value=float(r["value"]) if r["value"] not in ["", None] else 0.0,
-                    key=f"rule_{r['id']}_val"
-                )
-                st.caption("Ej: 100 o 99.5")
+                if condition == "between":
+                    col3a, col3b = st.columns(2)
+                    st.caption("Ej: desde 100 hasta 500")
+                    with col3a:
+                        val1 = st.text_input("Desde", value=r.get("value", ""), key=f"rule_{i}_val1")
+                    with col3b:
+                        val2 = st.text_input("Hasta", value=r.get("value2", ""), key=f"rule_{i}_val2")
+                    r["value"] = val1
+                    r["value2"] = val2
+                    st.session_state.filters_applied = False
+                    r["status"] = "nueva"
 
-            elif dtype == "date":
-                default_date = r["value"] if isinstance(r["value"], datetime.date) else None
-                r["value"] = st.date_input("Fecha", value=default_date, key=f"rule_{r['id']}_val")
-                st.caption("Seleccionar desde el calendario")
+                elif dtype == "int":
+                    r["value"] = st.number_input(
+                        "Valor",
+                        value=int(r["value"]) if str(r["value"]).isdigit() else 0,
+                        step=1,
+                        key=f"rule_{r['id']}_val"
+                    )
+                    st.caption("Ej: 100, 2500")
 
-            else:
-                r["value"] = st.text_input(
-                    "Valor",
-                    value=str(r["value"]) if r["value"] not in [None] else "",
-                    key=f"rule_{r['id']}_val"
-                )
-                st.caption("Ej: Juan, ABC123, Cliente1")
+                elif dtype == "float":
+                    r["value"] = st.number_input(
+                        "Valor",
+                        value=float(r["value"]) if r["value"] not in ["", None] else 0.0,
+                        key=f"rule_{r['id']}_val"
+                    )
+                    st.caption("Ej: 100 o 99.5")
 
-        with col4:
-            st.markdown("<div style='margin-top: 28px'></div>", unsafe_allow_html=True)
-            if st.button("❌", key=f"rule_{r['id']}_del"):
-                st.session_state.rules.pop(i)
-                st.rerun()
+                elif dtype == "date":
+                    default_date = r["value"] if isinstance(r["value"], datetime.date) else None
+                    r["value"] = st.date_input("Fecha", value=default_date, key=f"rule_{r['id']}_val")
+                    st.caption("Seleccionar desde el calendario")
+
+                else:
+                    r["value"] = st.text_input(
+                        "Valor",
+                        value=str(r["value"]) if r["value"] not in [None] else "",
+                        key=f"rule_{r['id']}_val"
+                    )
+                    st.caption("Ej: Juan, ABC123, Cliente1")
+
+            with col4:
+                st.markdown("<div style='margin-top: 28px'></div>", unsafe_allow_html=True)
+                if st.button("❌", key=f"rule_{r['id']}_del"):
+                    st.session_state.rules.pop(i)
+                    st.rerun()
 
     return st.session_state.rules, st.session_state.logic
