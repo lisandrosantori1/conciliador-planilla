@@ -54,7 +54,7 @@ def _key_mapping_row(df_a, df_b, mapping: dict, row_key: str):
         )
 
     with c_del:
-        st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
         if st.button("❌", key=f"{row_key}_del"):
             return True
 
@@ -84,7 +84,7 @@ def _compare_mapping_row(df_a, df_b, mapping: dict, row_key: str):
         )
 
     with c3:
-        st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
         if st.button("❌", key=f"{row_key}_del"):
             return True
 
