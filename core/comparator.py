@@ -23,6 +23,13 @@ def conciliar(df_a, df_b, key_mappings, compare_mappings):
     }
     df_b_aligned = df_b.rename(columns=rename_b)
 
+    # Normalizar separador decimal en columnas clave para que "123,45" y "123.45" unan
+    df_a = df_a.copy()
+    df_b_aligned = df_b_aligned.copy()
+    for col in key_cols_a:
+        df_a[col] = _normalize_key_col(df_a[col])
+        df_b_aligned[col] = _normalize_key_col(df_b_aligned[col])
+
     compare_cols = [m["col_a"] for m in compare_mappings]
 
     df_merge = pd.merge(
@@ -39,6 +46,24 @@ def conciliar(df_a, df_b, key_mappings, compare_mappings):
     diferencias = _find_differences(coincidencias, compare_cols, key_cols_a)
 
     return coincidencias, solo_a, solo_b, diferencias
+
+
+def _normalize_key_col(series: pd.Series) -> pd.Series:
+    """Normaliza una columna clave unificando el separador decimal antes del merge.
+
+    Convierte "123,45" → "123.45" para que coincida con "123.45" del otro archivo.
+    Los valores no numéricos (texto, códigos) se dejan sin cambios.
+    """
+    def normalize(val):
+        if pd.isna(val):
+            return val
+        s = str(val).strip()
+        f = _try_to_float(s)
+        if f is None:
+            return s
+        # Formato canónico: sin decimal si es entero, punto como separador si no
+        return str(int(f)) if f == int(f) else f'{f:.10g}'
+    return series.apply(normalize)
 
 
 def _try_to_float(val) -> float | None:
