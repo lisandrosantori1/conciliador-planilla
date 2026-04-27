@@ -279,6 +279,25 @@ else:
     st.divider()
     key_mappings, compare_mappings = column_mapper(df_a, df_b, mapper_key)
 
+    # Opciones de resultado (antes del botón)
+    with st.container(border=True):
+        st.caption("Incluir en resultados y descarga:")
+        oc1, oc2 = st.columns(2)
+        with oc1:
+            show_solo_a = st.checkbox(
+                f"Registros solo en {sel_a}",
+                value=False,
+                key="show_solo_a",
+                help=f"Filas que existen en {sel_a} pero no tienen coincidencia en {sel_b}",
+            )
+        with oc2:
+            show_solo_b = st.checkbox(
+                f"Registros solo en {sel_b}",
+                value=False,
+                key="show_solo_b",
+                help=f"Filas que existen en {sel_b} pero no tienen coincidencia en {sel_a}",
+            )
+
     if st.button("Ejecutar Conciliación", type="primary") and key_mappings:
 
         # Aplicar filtros a df_a
@@ -303,7 +322,7 @@ else:
             st.error("Error durante la conciliación.")
             st.stop()
 
-        # Resultados
+        # Métricas (siempre se muestran los conteos)
         st.success("Conciliación completada.")
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Coincidencias", len(coincidencias))
@@ -311,17 +330,29 @@ else:
         m3.metric(f"Solo en {sel_b}", len(solo_b))
         m4.metric("Diferencias halladas", len(diferencias))
 
-        with st.expander("Vista previa de resultados"):
-            t1, t2, t3, t4 = st.tabs([
-                "Coincidencias", f"Solo en {sel_a}", f"Solo en {sel_b}", "Diferencias"
-            ])
-            with t1:
+        # Armar tabs según opciones seleccionadas
+        tab_names = ["Coincidencias"]
+        if show_solo_a:
+            tab_names.append(f"Solo en {sel_a}")
+        if show_solo_b:
+            tab_names.append(f"Solo en {sel_b}")
+        tab_names.append("Diferencias")
+
+        with st.expander("Vista previa de resultados", expanded=True):
+            result_tabs = st.tabs(tab_names)
+            ti = 0
+            with result_tabs[ti]:
                 st.dataframe(coincidencias.head(10), use_container_width=True)
-            with t2:
-                st.dataframe(solo_a.head(10), use_container_width=True)
-            with t3:
-                st.dataframe(solo_b.head(10), use_container_width=True)
-            with t4:
+            ti += 1
+            if show_solo_a:
+                with result_tabs[ti]:
+                    st.dataframe(solo_a.head(10), use_container_width=True)
+                ti += 1
+            if show_solo_b:
+                with result_tabs[ti]:
+                    st.dataframe(solo_b.head(10), use_container_width=True)
+                ti += 1
+            with result_tabs[ti]:
                 if not diferencias.empty:
                     st.dataframe(diferencias.head(10), use_container_width=True)
                 else:
@@ -335,12 +366,14 @@ else:
                 coincidencias.drop(columns=["_merge"], errors="ignore").to_excel(
                     writer, index=False, sheet_name="Coincidencias"
                 )
-                solo_a.drop(columns=["_merge"], errors="ignore").to_excel(
-                    writer, index=False, sheet_name=f"Solo en {sel_a}"[:31]
-                )
-                solo_b.drop(columns=["_merge"], errors="ignore").to_excel(
-                    writer, index=False, sheet_name=f"Solo en {sel_b}"[:31]
-                )
+                if show_solo_a:
+                    solo_a.drop(columns=["_merge"], errors="ignore").to_excel(
+                        writer, index=False, sheet_name=f"Solo en {sel_a}"[:31]
+                    )
+                if show_solo_b:
+                    solo_b.drop(columns=["_merge"], errors="ignore").to_excel(
+                        writer, index=False, sheet_name=f"Solo en {sel_b}"[:31]
+                    )
                 if not diferencias.empty:
                     diferencias.to_excel(writer, index=False, sheet_name="Diferencias")
 
