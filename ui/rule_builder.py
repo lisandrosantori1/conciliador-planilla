@@ -180,16 +180,14 @@ def rule_builder(df, col_types):
                 else:
                     st.error("Completa la regla antes de aplicarla")
 
-    st.divider()
 
     with st.container(border=True):
-        st.markdown("#### 📋 Reglas actuales Licha")
-        st.caption(
-            "Reglas aplicadas sobre la tabla. Podés **editarlas** haciendo clic sobre la **columna**, "
-            "**condición** o **valor**, o **eliminarlas** con el botón ❌. "
-            "Hay ejemplo debajo del valor para cada tipo de dato."
+        st.markdown("#### 📋 Reglas actuales")
+        st.markdown(
+            "Podés **editarlas** haciendo clic en la **columna**, **condición** o **valor**. "
+            "Usá ❌ para eliminar una regla. "
+            "Debajo de cada campo de valor hay un ejemplo del formato esperado."
         )
-        st.write("")
 
         for i, r in enumerate(st.session_state.rules):
             col1, col2, col3, col4 = st.columns([2, 2, 2, 1])

@@ -370,6 +370,8 @@ else:
 
     _help_text()
     st.subheader("Filtros avanzados")
+    st.write("")
+
     rules, logic = rule_builder(df_a, col_types)
 
     if not rules:
@@ -425,7 +427,8 @@ else:
             "diferencias": diferencias,
             "df_a_filtered": df_a_filtered,
         }
-        st.session_state.pop("calc_definitions", None)  # reset cálculos al re-ejecutar
+        st.session_state.pop("calc_definitions", None)
+        st.session_state.pop("calc_applied", None)
 
     # ── Mostrar resultados (persisten entre reruns) ────────────────────────────
     if "concil_results" in st.session_state:
