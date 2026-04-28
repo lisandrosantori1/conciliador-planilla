@@ -7,8 +7,8 @@ def _default_key_mappings(df_a, df_b):
     """Pre-popula el mapeo con la primera columna en común, si existe."""
     common = [col for col in df_a.columns if col in df_b.columns]
     if common:
-        return [{"col_a": common[0], "col_b": common[0], "fuzzy": False}]
-    return [{"col_a": df_a.columns[0], "col_b": df_b.columns[0], "fuzzy": False}]
+        return [{"col_a": common[0], "col_b": common[0], "fuzzy": False, "normalize": False}]
+    return [{"col_a": df_a.columns[0], "col_b": df_b.columns[0], "fuzzy": False, "normalize": False}]
 
 
 def _init_state(df_a, df_b, file_key: str):
@@ -51,6 +51,15 @@ def _key_mapping_row(df_a, df_b, mapping: dict, row_key: str):
                 "Activa coincidencia por contenido: "
                 "'46348199' coincide con 'K46348199' porque uno contiene al otro. "
                 "Útil cuando los códigos tienen prefijos o sufijos variables."
+            ),
+        )
+        mapping["normalize"] = st.checkbox(
+            "Norm. CUIT/DNI",
+            value=mapping.get("normalize", False),
+            key=f"{row_key}_normalize",
+            help=(
+                "Elimina guiones y espacios antes de comparar. "
+                "Útil para CUIT/DNI: '20-12345678-9' coincide con '20123456789'."
             ),
         )
 
@@ -132,6 +141,7 @@ def column_mapper(df_a, df_b, file_key: str):
                 "col_a": df_a.columns[0],
                 "col_b": df_b.columns[0],
                 "fuzzy": False,
+                "normalize": False,
             })
             st.rerun()
 
