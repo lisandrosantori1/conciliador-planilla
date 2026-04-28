@@ -3,13 +3,14 @@
 import pandas as pd
 
 
-def conciliar(df_a, df_b, key_mappings, compare_mappings):
+def conciliar(df_a, df_b, key_mappings, compare_mappings, keep_b_keys=False):
     """
     Realiza la conciliación entre dos DataFrames con mapeo flexible de columnas.
 
     Args:
         key_mappings:     Lista de {"col_a", "col_b", "fuzzy"} que identifican coincidencias.
         compare_mappings: Lista de {"col_a", "col_b"} donde detectar diferencias.
+        keep_b_keys:      Si True, agrega las columnas clave de Tabla B en coincidencias.
 
     Returns:
         Tuple (coincidencias, solo_a, solo_b, diferencias) como DataFrames.
@@ -30,24 +31,50 @@ def conciliar(df_a, df_b, key_mappings, compare_mappings):
         coincidencias, solo_a, solo_b = _fuzzy_merge(
             df_a, df_b_aligned, key_cols_a, fuzzy_cols, compare_cols
         )
+        if keep_b_keys and not coincidencias.empty and "__b_matched_idx__" in coincidencias.columns:
+            b_orig = df_b.reset_index(drop=True)
+            for m in key_mappings:
+                col_a, col_b_orig = m["col_a"], m["col_b"]
+                b_display = col_b_orig if col_b_orig != col_a else f"{col_a}_B"
+                if b_display not in coincidencias.columns:
+                    b_idxs = coincidencias["__b_matched_idx__"].tolist()
+                    pos = list(coincidencias.columns).index(col_a) + 1
+                    coincidencias.insert(pos, b_display, b_orig.loc[b_idxs, col_b_orig].values)
+        coincidencias = coincidencias.drop(columns=["__b_matched_idx__"], errors="ignore")
     else:
         # Merge exacto con normalización de separador decimal
-        df_a = df_a.copy()
-        df_b_aligned = df_b_aligned.copy()
+        df_a_work = df_a.copy()
+        df_b_work = df_b_aligned.copy()
+
+        if keep_b_keys:
+            df_b_work["__bidx__"] = range(len(df_b_work))
+
         for col in key_cols_a:
-            df_a[col] = _normalize_key_col(df_a[col])
-            df_b_aligned[col] = _normalize_key_col(df_b_aligned[col])
+            df_a_work[col] = _normalize_key_col(df_a_work[col])
+            df_b_work[col] = _normalize_key_col(df_b_work[col])
 
         df_merge = pd.merge(
-            df_a, df_b_aligned,
+            df_a_work, df_b_work,
             on=key_cols_a,
-            how='outer',
-            suffixes=('_A', '_B'),
-            indicator=True
+            how="outer",
+            suffixes=("_A", "_B"),
+            indicator=True,
         )
-        coincidencias = df_merge[df_merge['_merge'] == 'both'].copy()
-        solo_a = df_merge[df_merge['_merge'] == 'left_only'].copy()
-        solo_b = df_merge[df_merge['_merge'] == 'right_only'].copy()
+        coincidencias = df_merge[df_merge["_merge"] == "both"].copy()
+        solo_a = df_merge[df_merge["_merge"] == "left_only"].copy()
+        solo_b = df_merge[df_merge["_merge"] == "right_only"].copy()
+
+        if keep_b_keys and "__bidx__" in coincidencias.columns:
+            b_orig = df_b.reset_index(drop=True)
+            for m in key_mappings:
+                col_a, col_b_orig = m["col_a"], m["col_b"]
+                b_display = col_b_orig if col_b_orig != col_a else f"{col_a}_B"
+                if b_display not in coincidencias.columns:
+                    bidx = coincidencias["__bidx__"].astype(int).tolist()
+                    pos = list(coincidencias.columns).index(col_a) + 1
+                    coincidencias.insert(pos, b_display, b_orig.loc[bidx, col_b_orig].values)
+            for df in [coincidencias, solo_a, solo_b]:
+                df.drop(columns=["__bidx__"], inplace=True, errors="ignore")
 
     diferencias = _find_differences(coincidencias, compare_cols, key_cols_a)
     return coincidencias, solo_a, solo_b, diferencias
@@ -74,7 +101,6 @@ def _find_fuzzy_pairs(df_a, df_b, key_cols, fuzzy_cols):
     Para columnas fuzzy hace strip y verifica contenido.
     Cada fila de A se une con a lo sumo una fila de B (primera coincidencia).
     """
-    # Pre-computar valores normalizados
     a_vals = {}
     b_vals = {}
     for col in key_cols:
@@ -124,17 +150,14 @@ def _fuzzy_merge(df_a, df_b, key_cols, fuzzy_cols, compare_cols):
     matched_a_set = set(matched_a)
     matched_b_set = set(matched_b)
 
-    # Coincidencias: unir filas de A y B que matchearon
     if pairs:
         rows_a = df_a.loc[matched_a].reset_index(drop=True)
         rows_b = df_b.loc[matched_b].reset_index(drop=True)
 
-        # Limpiar espacios en columnas fuzzy del resultado
         for col in fuzzy_cols:
             if col in rows_a.columns:
                 rows_a[col] = rows_a[col].astype(str).str.strip()
 
-        # Columnas de B que no son clave: agregarlas con sufijo _B si hay conflicto
         b_non_key = [c for c in df_b.columns if c not in key_cols]
         a_non_key = [c for c in df_a.columns if c not in key_cols]
         conflict = set(a_non_key) & set(b_non_key)
@@ -144,6 +167,7 @@ def _fuzzy_merge(df_a, df_b, key_cols, fuzzy_cols, compare_cols):
 
         coincidencias = pd.concat([rows_a_out, rows_b_out], axis=1)
         coincidencias["_merge"] = "both"
+        coincidencias["__b_matched_idx__"] = matched_b
     else:
         coincidencias = pd.DataFrame()
 
@@ -161,12 +185,12 @@ def _fuzzy_merge(df_a, df_b, key_cols, fuzzy_cols, compare_cols):
 def _normalize_scalar(val) -> str:
     """Versión escalar de normalización para uso en listas."""
     if pd.isna(val):
-        return ''
+        return ""
     s = str(val).strip()
     f = _try_to_float(s)
     if f is None:
         return s
-    return str(int(f)) if f == int(f) else f'{f:.10g}'
+    return str(int(f)) if f == int(f) else f"{f:.10g}"
 
 
 def _normalize_key_col(series: pd.Series) -> pd.Series:
@@ -177,20 +201,20 @@ def _normalize_key_col(series: pd.Series) -> pd.Series:
 def _try_to_float(val) -> float | None:
     """Parsea un valor como float tolerando coma o punto como separador decimal."""
     v = str(val).strip()
-    if not v or v.lower() in ('nan', 'none', ''):
+    if not v or v.lower() in ("nan", "none", ""):
         return None
 
-    has_comma = ',' in v
-    has_dot = '.' in v
+    has_comma = "," in v
+    has_dot = "." in v
 
     try:
         if has_comma and has_dot:
-            if v.rindex(',') > v.rindex('.'):
-                v = v.replace('.', '').replace(',', '.')
+            if v.rindex(",") > v.rindex("."):
+                v = v.replace(".", "").replace(",", ".")
             else:
-                v = v.replace(',', '')
+                v = v.replace(",", "")
         elif has_comma:
-            v = v.replace(',', '.')
+            v = v.replace(",", ".")
         return float(v)
     except (ValueError, AttributeError):
         return None
@@ -226,9 +250,9 @@ def _find_differences(coincidencias, compare_cols, key_cols):
         b = coincidencias[col_b_name]
         both_null = a.isna() & b.isna()
         str_diff = pd.Series(
-            [_values_differ(av, bv) for av, bv in zip(a.fillna(''), b.fillna(''))],
+            [_values_differ(av, bv) for av, bv in zip(a.fillna(""), b.fillna(""))],
             index=a.index,
-            dtype=bool
+            dtype=bool,
         )
         diff_flags[col] = ~both_null & str_diff
 

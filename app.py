@@ -435,7 +435,8 @@ else:
 
         try:
             coincidencias, solo_a, solo_b, diferencias = conciliar(
-                df_a_filtered, df_b_filtered, key_mappings, compare_mappings
+                df_a_filtered, df_b_filtered, key_mappings, compare_mappings,
+                keep_b_keys=st.session_state.get("keep_b_keys", False),
             )
         except Exception:
             logger.exception("Error durante la conciliación")
