@@ -16,6 +16,7 @@ def _init_state(df_a, df_b, file_key: str):
         st.session_state["_mapper_file_key"] = file_key
         st.session_state["key_mappings"] = _default_key_mappings(df_a, df_b)
         st.session_state["compare_mappings"] = []
+        st.session_state["keep_b_keys"] = False
 
 
 def _key_mapping_row(df_a, df_b, mapping: dict, row_key: str):
@@ -133,6 +134,16 @@ def column_mapper(df_a, df_b, file_key: str):
                 "fuzzy": False,
             })
             st.rerun()
+
+    # ── Opción: columnas B en coincidencias ────────────────────────────────────
+    st.checkbox(
+        "Incluir columnas de Tabla B en Coincidencias (opcional)",
+        key="keep_b_keys",
+        help=(
+            "Cuando está activo, el resultado muestra el valor de Tabla A y el valor de Tabla B "
+            "para cada columna clave. Útil con matching aproximado (ej: '46348199' vs 'K46348199')."
+        ),
+    )
 
     # ── Columnas a comparar ─────────────────────────────────────────────────────
     with st.container(border=True):
