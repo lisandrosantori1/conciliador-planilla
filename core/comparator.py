@@ -26,10 +26,12 @@ def conciliar(df_a, df_b, key_mappings, compare_mappings, keep_b_keys=False):
     df_b_aligned = df_b.rename(columns=rename_b)
     compare_cols = [m["col_a"] for m in compare_mappings]
 
+    normalize_cols = {m["col_a"] for m in key_mappings if m.get("normalize")}
+
     if has_fuzzy:
         fuzzy_cols = {m["col_a"] for m in key_mappings if m.get("fuzzy")}
         coincidencias, solo_a, solo_b = _fuzzy_merge(
-            df_a, df_b_aligned, key_cols_a, fuzzy_cols, compare_cols
+            df_a, df_b_aligned, key_cols_a, fuzzy_cols, compare_cols, normalize_cols
         )
         if keep_b_keys and not coincidencias.empty and "__b_matched_idx__" in coincidencias.columns:
             b_orig = df_b.reset_index(drop=True)
@@ -50,8 +52,9 @@ def conciliar(df_a, df_b, key_mappings, compare_mappings, keep_b_keys=False):
             df_b_work["__bidx__"] = range(len(df_b_work))
 
         for col in key_cols_a:
-            df_a_work[col] = _normalize_key_col(df_a_work[col])
-            df_b_work[col] = _normalize_key_col(df_b_work[col])
+            fn = _normalize_id_col if col in normalize_cols else _normalize_key_col
+            df_a_work[col] = fn(df_a_work[col])
+            df_b_work[col] = fn(df_b_work[col])
 
         df_merge = pd.merge(
             df_a_work, df_b_work,
@@ -94,17 +97,22 @@ def _fuzzy_key_match(val_a: str, val_b: str) -> bool:
     return a in b or b in a
 
 
-def _find_fuzzy_pairs(df_a, df_b, key_cols, fuzzy_cols):
+def _find_fuzzy_pairs(df_a, df_b, key_cols, fuzzy_cols, normalize_cols=None):
     """Encuentra pares (idx_a, idx_b) que coinciden según las reglas de cada columna clave.
 
     Para columnas exactas normaliza el separador decimal.
     Para columnas fuzzy hace strip y verifica contenido.
+    Para columnas normalize elimina guiones/espacios (CUIT/DNI).
     Cada fila de A se une con a lo sumo una fila de B (primera coincidencia).
     """
+    normalize_cols = normalize_cols or set()
     a_vals = {}
     b_vals = {}
     for col in key_cols:
-        if col in fuzzy_cols:
+        if col in normalize_cols:
+            a_vals[col] = [_normalize_id_scalar(v) for v in df_a[col]]
+            b_vals[col] = [_normalize_id_scalar(v) for v in df_b[col]]
+        elif col in fuzzy_cols:
             a_vals[col] = df_a[col].astype(str).str.strip().tolist()
             b_vals[col] = df_b[col].astype(str).str.strip().tolist()
         else:
@@ -141,9 +149,9 @@ def _find_fuzzy_pairs(df_a, df_b, key_cols, fuzzy_cols):
     return pairs
 
 
-def _fuzzy_merge(df_a, df_b, key_cols, fuzzy_cols, compare_cols):
+def _fuzzy_merge(df_a, df_b, key_cols, fuzzy_cols, compare_cols, normalize_cols=None):
     """Construye coincidencias, solo_a y solo_b usando fuzzy matching."""
-    pairs = _find_fuzzy_pairs(df_a, df_b, key_cols, fuzzy_cols)
+    pairs = _find_fuzzy_pairs(df_a, df_b, key_cols, fuzzy_cols, normalize_cols)
 
     matched_a = [p[0] for p in pairs]
     matched_b = [p[1] for p in pairs]
@@ -196,6 +204,26 @@ def _normalize_scalar(val) -> str:
 def _normalize_key_col(series: pd.Series) -> pd.Series:
     """Normaliza una columna clave unificando el separador decimal antes del merge."""
     return series.apply(_normalize_scalar)
+
+
+def _normalize_id_scalar(val) -> str:
+    """Normalización para IDs con guiones (CUIT/DNI): elimina guiones y espacios si el resultado es numérico."""
+    if pd.isna(val):
+        return ""
+    s = str(val).strip()
+    stripped = s.replace("-", "").replace(" ", "")
+    if stripped.isdigit() and stripped:
+        return stripped
+    # Fallback a normalización estándar
+    f = _try_to_float(s)
+    if f is None:
+        return s
+    return str(int(f)) if f == int(f) else f"{f:.10g}"
+
+
+def _normalize_id_col(series: pd.Series) -> pd.Series:
+    """Normalización de columna clave para CUIT/DNI: elimina guiones antes del merge."""
+    return series.apply(_normalize_id_scalar)
 
 
 def _try_to_float(val) -> float | None:
