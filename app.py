@@ -386,11 +386,11 @@ def _render_calc_cols_section(coinc: pd.DataFrame):
                 st.session_state.pop("calc_applied", None)
                 st.rerun()
 
-            # Preview de la fórmula
+            # Preview de la fórmula con paréntesis que reflejan el orden de evaluación
             name_p = d.get("name") or f"Calculada_{i + 1}"
             formula = f"`{d.get('col1', '?')}` **{d.get('op', '×')}** `{d.get('col2', '?')}`"
             for es in d["extra_steps"]:
-                formula += f" **{es.get('op', '×')}** `{es.get('col', '?')}`"
+                formula = f"({formula}) **{es.get('op', '×')}** `{es.get('col', '?')}`"
             st.caption(f"→ **{name_p}** = {formula}")
 
     for i in reversed(to_delete):
