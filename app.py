@@ -7,6 +7,7 @@ import streamlit as st
 
 from core.comparator import conciliar
 from core.dtype_detector import detect_column_type, VALID_TYPES
+from core.rule_labels import RULE_LABELS, RULE_LABELS_INV
 from core.rules import apply_rule
 from ui.column_mapper import column_mapper
 from ui.rule_builder import rule_builder
@@ -118,26 +119,169 @@ def _apply_filters(df, rules, logic, col_types):
     return filtered
 
 
+def _apply_value_changes(df: pd.DataFrame, changes: list, col_types: dict) -> pd.DataFrame:
+    """Aplica transformaciones a filas que cumplen una condición sin filtrar el resultado."""
+    if not changes:
+        return df
+    result = df.copy()
+    for ch in changes:
+        cond_col = ch.get("cond_col")
+        condition = ch.get("condition")
+        filter_val = ch.get("filter_val", "")
+        target_col = ch.get("target_col")
+        op = ch.get("op", "×-1")
+        op_val = ch.get("op_val")
+        if not cond_col or not condition or not target_col:
+            continue
+        if cond_col not in result.columns or target_col not in result.columns:
+            continue
+        mask = apply_rule(
+            result[cond_col], condition, filter_val,
+            dtype=col_types.get(cond_col, "str"),
+        )
+        if mask is None or not mask.any():
+            continue
+        numeric = pd.to_numeric(result.loc[mask, target_col], errors="coerce")
+        if op == "×-1":
+            result.loc[mask, target_col] = numeric * -1
+        elif op == "×" and op_val is not None:
+            result.loc[mask, target_col] = numeric * op_val
+        elif op == "+" and op_val is not None:
+            result.loc[mask, target_col] = numeric + op_val
+        elif op == "-" and op_val is not None:
+            result.loc[mask, target_col] = numeric - op_val
+        elif op == "÷" and op_val is not None and op_val != 0:
+            result.loc[mask, target_col] = numeric / op_val
+    return result
+
+
+def _render_value_changes_section(df: pd.DataFrame, col_types: dict, prefix: str):
+    """UI para definir cambios de valor condicionales (todas las filas en el resultado)."""
+    key = f"{prefix}vc_defs"
+    if key not in st.session_state:
+        st.session_state[key] = []
+    defs = st.session_state[key]
+
+    st.caption(
+        "Definí una condición y la transformación a aplicar. "
+        "Las filas que la cumplan se modifican, pero el resultado incluye **todas** las filas."
+    )
+
+    VC_OPS = ["×-1", "×", "+", "-", "÷"]
+    VC_OP_LABELS = {"×-1": "× -1 (cambiar signo)", "×": "×", "+": "+", "-": "-", "÷": "÷"}
+
+    def _cond_options(dtype):
+        if dtype in ("int", "float"):
+            return ["equals", "not_equals", "greater", "less"]
+        if dtype == "date":
+            return ["equals", "before", "after"]
+        return ["equals", "contains", "starts_with", "ends_with"]
+
+    all_cols = list(df.columns)
+    num_cols = [c for c in all_cols if pd.api.types.is_numeric_dtype(df[c])
+                or pd.to_numeric(df[c], errors="coerce").notna().any()]
+
+    if not num_cols:
+        st.info("No hay columnas numéricas disponibles para transformar.")
+        return
+
+    to_delete = []
+    for i, ch in enumerate(defs):
+        c1, c2, c3, c_arr, c4, c5, c6 = st.columns([2.5, 2, 2, 0.4, 2.5, 2.5, 1])
+        with c1:
+            idx = all_cols.index(ch["cond_col"]) if ch.get("cond_col") in all_cols else 0
+            ch["cond_col"] = st.selectbox("Columna condición", all_cols, index=idx,
+                                          key=f"{prefix}vc_{i}_cc", label_visibility="collapsed")
+        with c2:
+            dtype = col_types.get(ch["cond_col"], "str")
+            opts = _cond_options(dtype)
+            labels = [RULE_LABELS.get(o, o) for o in opts]
+            cur = ch.get("condition", opts[0])
+            idx2 = opts.index(cur) if cur in opts else 0
+            sel = st.selectbox("Condición", labels, index=idx2,
+                               key=f"{prefix}vc_{i}_cond", label_visibility="collapsed")
+            ch["condition"] = RULE_LABELS_INV.get(sel, sel)
+        with c3:
+            ch["filter_val"] = st.text_input("Valor", value=str(ch.get("filter_val", "")),
+                                             key=f"{prefix}vc_{i}_fv", label_visibility="collapsed",
+                                             placeholder="Valor a buscar")
+        with c_arr:
+            st.markdown("<div style='text-align:center;margin-top:8px;font-size:18px'>→</div>",
+                        unsafe_allow_html=True)
+        with c4:
+            idx4 = num_cols.index(ch["target_col"]) if ch.get("target_col") in num_cols else 0
+            ch["target_col"] = st.selectbox("Columna a modificar", num_cols, index=idx4,
+                                            key=f"{prefix}vc_{i}_tc", label_visibility="collapsed")
+        with c5:
+            ch["op"] = st.selectbox("Operación", VC_OPS,
+                                    index=VC_OPS.index(ch.get("op", "×-1")),
+                                    format_func=lambda o: VC_OP_LABELS[o],
+                                    key=f"{prefix}vc_{i}_op", label_visibility="collapsed")
+            if ch["op"] != "×-1":
+                ch["op_val"] = st.number_input("Valor op", value=float(ch.get("op_val") or 1.0),
+                                               key=f"{prefix}vc_{i}_ov", label_visibility="collapsed")
+        with c6:
+            st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+            if st.button("❌", key=f"{prefix}vc_{i}_del"):
+                to_delete.append(i)
+
+    for i in reversed(to_delete):
+        defs.pop(i)
+        st.rerun()
+
+    if st.button("➕ Agregar cambio", key=f"{prefix}vc_add"):
+        defs.append({
+            "cond_col": all_cols[0],
+            "condition": _cond_options(col_types.get(all_cols[0], "str"))[0],
+            "filter_val": "",
+            "target_col": num_cols[0],
+            "op": "×-1",
+            "op_val": None,
+        })
+        st.rerun()
+
+
 def _apply_calc_cols(df: pd.DataFrame, defs: list) -> pd.DataFrame:
-    """Agrega columnas calculadas al DataFrame según las definiciones."""
+    """Agrega columnas calculadas al DataFrame. Soporta N operandos encadenados."""
     if not defs:
         return df
     result = df.copy()
     for d in defs:
-        c1, c2, op, name = d.get("col1"), d.get("col2"), d.get("op", "×"), d.get("name", "")
+        name = d.get("name", "")
+        c1 = d.get("col1")
+        c2 = d.get("col2")
         if not name or c1 not in result.columns or c2 not in result.columns:
             continue
         try:
+            op = d.get("op", "×")
             a = pd.to_numeric(result[c1], errors="coerce")
             b = pd.to_numeric(result[c2], errors="coerce")
             if op == "×":
-                result[name] = a * b
+                series = a * b
             elif op == "+":
-                result[name] = a + b
+                series = a + b
             elif op == "-":
-                result[name] = a - b
+                series = a - b
             elif op == "÷":
-                result[name] = np.where(b != 0, a / b, np.nan)
+                series = np.where(b != 0, a / b, np.nan)
+            else:
+                series = a * b
+            # Operandos extra encadenados
+            for es in d.get("extra_steps", []):
+                ec = es.get("col")
+                eop = es.get("op", "×")
+                if not ec or ec not in result.columns:
+                    continue
+                e = pd.to_numeric(result[ec], errors="coerce")
+                if eop == "×":
+                    series = series * e
+                elif eop == "+":
+                    series = series + e
+                elif eop == "-":
+                    series = series - e
+                elif eop == "÷":
+                    series = np.where(e != 0, series / e, np.nan)
+            result[name] = series
         except Exception:
             logger.exception(f"Error calculando columna '{name}'")
     return result
@@ -159,12 +303,12 @@ def _numeric_cols_from(coinc: pd.DataFrame) -> list:
 
 
 def _render_calc_cols_section(coinc: pd.DataFrame):
-    """UI para definir columnas calculadas sobre las coincidencias."""
+    """UI para definir columnas calculadas sobre las coincidencias (N operandos encadenados)."""
     numeric_cols = _numeric_cols_from(coinc)
 
     st.caption(
-        "Definí operaciones entre columnas numéricas de cualquier tabla. "
-        "Ejemplo: Cantidad × Precio unitario → Precio total."
+        "Definí operaciones entre columnas numéricas. Podés encadenar N operandos. "
+        "Ejemplo: Precio_dolar × Cantidad × IVA → Total."
     )
 
     if not numeric_cols:
@@ -175,51 +319,79 @@ def _render_calc_cols_section(coinc: pd.DataFrame):
         st.session_state["calc_definitions"] = []
 
     defs = st.session_state["calc_definitions"]
-
-    if defs:
-        h1, h2, h3, h4, _ = st.columns([3, 1, 3, 3, 1])
-        h1.caption("Columna 1 (cualquier tabla)")
-        h2.caption("Op.")
-        h3.caption("Columna 2 (cualquier tabla)")
-        h4.caption("Nombre del resultado")
-
     to_delete = []
-    for i, d in enumerate(defs):
-        c1, c2, c3, c4, c5 = st.columns([3, 1, 3, 3, 1])
-        with c1:
-            d["col1"] = st.selectbox(
-                "", numeric_cols,
-                index=numeric_cols.index(d["col1"]) if d["col1"] in numeric_cols else 0,
-                key=f"cd_c1_{i}", label_visibility="collapsed",
-            )
-        with c2:
-            d["op"] = st.selectbox(
-                "", CALC_OPS,
-                index=CALC_OPS.index(d.get("op", "×")),
-                key=f"cd_op_{i}", label_visibility="collapsed",
-            )
-        with c3:
-            d["col2"] = st.selectbox(
-                "", numeric_cols,
-                index=numeric_cols.index(d["col2"]) if d["col2"] in numeric_cols else 0,
-                key=f"cd_c2_{i}", label_visibility="collapsed",
-            )
-        with c4:
-            d["name"] = st.text_input(
-                "", value=d.get("name", f"Calculada_{i + 1}"),
-                key=f"cd_name_{i}", label_visibility="collapsed",
-                placeholder="Ej: Precio total",
-            )
-        with c5:
-            st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
-            if st.button("❌", key=f"cd_del_{i}"):
-                to_delete.append(i)
 
-        name_preview = d.get("name") or f"Calculada_{i + 1}"
-        col1_preview = d.get("col1", "?")
-        col2_preview = d.get("col2", "?")
-        op_preview = d.get("op", "×")
-        st.caption(f"→ **{name_preview}** = `{col1_preview}` **{op_preview}** `{col2_preview}`")
+    for i, d in enumerate(defs):
+        with st.container(border=True):
+            # Fila base: col1 op col2 nombre ❌
+            c1, c2, c3, c4, c5 = st.columns([3, 1, 3, 3, 1])
+            with c1:
+                d["col1"] = st.selectbox(
+                    "Col 1", numeric_cols,
+                    index=numeric_cols.index(d["col1"]) if d.get("col1") in numeric_cols else 0,
+                    key=f"cd_c1_{i}", label_visibility="collapsed",
+                )
+            with c2:
+                d["op"] = st.selectbox(
+                    "Op", CALC_OPS,
+                    index=CALC_OPS.index(d.get("op", "×")),
+                    key=f"cd_op_{i}", label_visibility="collapsed",
+                )
+            with c3:
+                d["col2"] = st.selectbox(
+                    "Col 2", numeric_cols,
+                    index=numeric_cols.index(d["col2"]) if d.get("col2") in numeric_cols else 0,
+                    key=f"cd_c2_{i}", label_visibility="collapsed",
+                )
+            with c4:
+                d["name"] = st.text_input(
+                    "Nombre", value=d.get("name", f"Calculada_{i + 1}"),
+                    key=f"cd_name_{i}", label_visibility="collapsed",
+                    placeholder="Ej: Total",
+                )
+            with c5:
+                st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+                if st.button("❌", key=f"cd_del_{i}"):
+                    to_delete.append(i)
+
+            # Pasos extra encadenados
+            d.setdefault("extra_steps", [])
+            to_del_es = []
+            for ei, es in enumerate(d["extra_steps"]):
+                _, ec1, ec2, _, ec5 = st.columns([3, 1, 3, 3, 1])
+                with ec1:
+                    es["op"] = st.selectbox(
+                        "Op", CALC_OPS,
+                        index=CALC_OPS.index(es.get("op", "×")),
+                        key=f"cd_es_{i}_{ei}_op", label_visibility="collapsed",
+                    )
+                with ec2:
+                    es["col"] = st.selectbox(
+                        "Col", numeric_cols,
+                        index=numeric_cols.index(es["col"]) if es.get("col") in numeric_cols else 0,
+                        key=f"cd_es_{i}_{ei}_col", label_visibility="collapsed",
+                    )
+                with ec5:
+                    st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+                    if st.button("❌", key=f"cd_es_{i}_{ei}_del"):
+                        to_del_es.append(ei)
+            for ei in reversed(to_del_es):
+                d["extra_steps"].pop(ei)
+                st.session_state.pop("calc_applied", None)
+                st.rerun()
+
+            # Botón agregar operando
+            if st.button("➕ Agregar operando", key=f"cd_addstep_{i}"):
+                d["extra_steps"].append({"op": "×", "col": numeric_cols[0]})
+                st.session_state.pop("calc_applied", None)
+                st.rerun()
+
+            # Preview de la fórmula
+            name_p = d.get("name") or f"Calculada_{i + 1}"
+            formula = f"`{d.get('col1', '?')}` **{d.get('op', '×')}** `{d.get('col2', '?')}`"
+            for es in d["extra_steps"]:
+                formula += f" **{es.get('op', '×')}** `{es.get('col', '?')}`"
+            st.caption(f"→ **{name_p}** = {formula}")
 
     for i in reversed(to_delete):
         defs.pop(i)
@@ -234,6 +406,7 @@ def _render_calc_cols_section(coinc: pd.DataFrame):
                 "op": "×",
                 "col2": numeric_cols[min(1, len(numeric_cols) - 1)],
                 "name": f"Calculada_{len(defs) + 1}",
+                "extra_steps": [],
             })
             st.session_state.pop("calc_applied", None)
             st.rerun()
@@ -248,10 +421,11 @@ def _reset_filters_if_table_changed(table_key: str):
         st.session_state["_active_table_key"] = table_key
         for k in ("key_mappings", "compare_mappings", "concil_results",
                   "calc_definitions", "calc_applied",
-                  "show_filters_m1", "show_filters_m2", "show_filters_m2b"):
+                  "show_filters_m1", "show_filters_m2", "show_filters_m2b",
+                  "show_vc_m1", "show_vc_m2a", "show_vc_m2b"):
             st.session_state.pop(k, None)
         for prefix in ("m1_", "m2a_", "m2b_"):
-            for k in ("rules", "current_rule", "new_rule", "logic"):
+            for k in ("rules", "current_rule", "new_rule", "logic", "vc_defs"):
                 st.session_state.pop(f"{prefix}{k}", None)
 
 #Comentado por el momento ya que no esta actualizado y molesta. Luego verlo
@@ -344,10 +518,21 @@ if len(loaded_tables) == 1:
         "Podés exportar todos los datos o aplicar filtros para quedarte con un subconjunto."
     )
 
+    # ── Cambios de valor condicionales ────────────────────────────────────────
+    show_vc = st.checkbox(
+        "🔄 Cambios de valor condicionales (opcional)",
+        key="show_vc_m1",
+        help="Modificá valores en columnas según una condición. Todas las filas aparecen en el resultado.",
+    )
+    if show_vc:
+        with st.container(border=True):
+            st.markdown("#### 🔄 Cambios de valor por condición")
+            _render_value_changes_section(df, col_types, "m1_")
+
     show_filters = st.checkbox(
-        "🔍 Aplicar filtros antes de exportar (opcional)",
+        "🔍 Filtrar registros antes de exportar (opcional)",
         key="show_filters_m1",
-        help="Activá para filtrar los registros según condiciones. Sin filtros se exporta todo.",
+        help="Activá para incluir solo ciertos registros en el resultado. Sin filtros se exporta todo.",
     )
 
     rules, logic = [], "AND"
@@ -359,13 +544,17 @@ if len(loaded_tables) == 1:
         else:
             st.caption("Agregá al menos una regla arriba para filtrar.")
 
-    btn_label = "Aplicar filtros y ver resultado" if (show_filters and rules) else "📊 Ver todos los registros"
+    btn_label = "Aplicar y ver resultado" if (show_vc or show_filters) else "📊 Ver todos los registros"
     if st.button(btn_label, type="primary"):
-        resultado = _apply_filters(df, rules, logic, col_types)
+        df_work = _apply_value_changes(df, st.session_state.get("m1_vc_defs", []), col_types)
+        resultado = _apply_filters(df_work, rules, logic, col_types) if (show_filters and rules) else df_work
+        n_changed = len(st.session_state.get("m1_vc_defs", []))
         if show_filters and rules:
-            st.success(f"Mostrando {len(resultado):,} de {len(df):,} registros")
+            st.success(f"Mostrando {len(resultado):,} de {len(df):,} registros" +
+                       (f" · {n_changed} cambio(s) aplicado(s)" if n_changed else ""))
         else:
-            st.success(f"Mostrando todos los {len(resultado):,} registros")
+            st.success(f"Mostrando todos los {len(resultado):,} registros" +
+                       (f" · {n_changed} cambio(s) de valor aplicado(s)" if n_changed else ""))
         st.dataframe(resultado, use_container_width=True)
         try:
             output = BytesIO()
@@ -420,6 +609,27 @@ else:
     mapper_key = f"a{table_a['idx']}-b{table_b['idx']}-{df_a.shape}-{df_b.shape}-{list(df_a.columns)[:5]}"
     key_mappings, compare_mappings = column_mapper(df_a, df_b, mapper_key)
 
+    # ── Cambios de valor condicionales ────────────────────────────────────────
+    show_vc_a = st.checkbox(
+        f"🔄 Cambios de valor en {sel_a} antes de conciliar (opcional)",
+        key="show_vc_m2a",
+        help="Modificá valores en columnas de Tabla A según una condición. Todas las filas entran a la conciliación.",
+    )
+    if show_vc_a:
+        with st.container(border=True):
+            st.markdown(f"#### 🔄 Cambios de valor en {sel_a}")
+            _render_value_changes_section(df_a, col_types_a, "m2a_")
+
+    show_vc_b = st.checkbox(
+        f"🔄 Cambios de valor en {sel_b} antes de conciliar (opcional)",
+        key="show_vc_m2b",
+        help="Modificá valores en columnas de Tabla B según una condición. Todas las filas entran a la conciliación.",
+    )
+    if show_vc_b:
+        with st.container(border=True):
+            st.markdown(f"#### 🔄 Cambios de valor en {sel_b}")
+            _render_value_changes_section(df_b, col_types_b, "m2b_")
+
     # ── Paso 3: Filtros opcionales ─────────────────────────────────────────────
     show_filters_a = st.checkbox(
         f"🔍 Filtrar registros de {sel_a} antes de conciliar (opcional)",
@@ -451,8 +661,11 @@ else:
 
     # ── Ejecutar ───────────────────────────────────────────────────────────────
     if st.button("▶️ Ejecutar Conciliación", type="primary") and key_mappings:
-        df_a_filtered = _apply_filters(df_a, rules_a, logic_a, col_types_a)
-        df_b_filtered = _apply_filters(df_b, rules_b, logic_b, col_types_b)
+        # Aplicar cambios de valor antes de filtrar
+        df_a_work = _apply_value_changes(df_a, st.session_state.get("m2a_vc_defs", []), col_types_a)
+        df_b_work = _apply_value_changes(df_b, st.session_state.get("m2b_vc_defs", []), col_types_b)
+        df_a_filtered = _apply_filters(df_a_work, rules_a, logic_a, col_types_a)
+        df_b_filtered = _apply_filters(df_b_work, rules_b, logic_b, col_types_b)
 
         bad_a = [m["col_a"] for m in key_mappings + compare_mappings if m["col_a"] not in df_a_filtered.columns]
         bad_b = [m["col_b"] for m in key_mappings + compare_mappings if m["col_b"] not in df_b_filtered.columns]
