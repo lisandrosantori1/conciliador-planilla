@@ -571,7 +571,7 @@ else:
 
             if optional_cols:
                 dl_extra_cols = st.multiselect(
-                    "Columnas adicionales a incluir en Coincidencias:",
+                    "Columnas adicionales a incluir en Coincidencias y Diferencias:",
                     optional_cols,
                     default=optional_cols,
                     key="dl_extra_cols",
@@ -593,7 +593,15 @@ else:
             with pd.ExcelWriter(output, engine="openpyxl") as writer:
                 coinc_export.to_excel(writer, index=False, sheet_name="Coincidencias")
                 if inc_diffs and not diferencias.empty:
-                    diferencias.to_excel(writer, index=False, sheet_name="Diferencias")
+                    selected_set = set(dl_extra_cols)
+                    dif_cols = [
+                        c for c in diferencias.columns
+                        if c in fixed_cols
+                        or c == "Columnas_con_diferencias"
+                        or c in selected_set
+                    ]
+                    dif_export = diferencias[dif_cols] if dif_cols else diferencias
+                    dif_export.to_excel(writer, index=False, sheet_name="Diferencias")
                 if show_solo_a:
                     solo_a.drop(columns=["_merge"], errors="ignore").to_excel(
                         writer, index=False, sheet_name=f"Solo {sel_a}"[:31]

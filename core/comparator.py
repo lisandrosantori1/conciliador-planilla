@@ -233,18 +233,23 @@ def _normalize_key_col(series: pd.Series) -> pd.Series:
 
 
 def _normalize_id_scalar(val) -> str:
-    """Normalización para IDs con guiones (CUIT/DNI): elimina guiones y espacios si el resultado es numérico."""
+    """Normalización para IDs con guiones (CUIT/DNI): elimina guiones/espacios si el resultado es numérico.
+    Para valores que no son IDs numéricos (ej: fechas) cae a normalización estándar.
+    """
     if pd.isna(val):
         return ""
     s = str(val).strip()
     stripped = s.replace("-", "").replace(" ", "")
     if stripped.isdigit() and stripped:
         return stripped
-    # Fallback a normalización estándar
+    # Fechas con / o -: normalizar a YYYY-MM-DD para comparar independientemente del formato
+    d = _try_to_date(s)
+    if d is not None:
+        return d
     f = _try_to_float(s)
-    if f is None:
-        return s
-    return str(int(f)) if f == int(f) else f"{f:.10g}"
+    if f is not None:
+        return str(int(f)) if f == int(f) else f"{f:.10g}"
+    return s
 
 
 def _normalize_id_col(series: pd.Series) -> pd.Series:
