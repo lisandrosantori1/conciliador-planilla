@@ -2,7 +2,7 @@
 
 import pandas as pd
 import pytest
-from core.comparator import _fuzzy_key_match, _try_to_float, _values_differ, conciliar
+from core.comparator import _fuzzy_key_match, _try_to_date, _try_to_float, _values_differ, conciliar
 
 
 # ── _try_to_float ──────────────────────────────────────────────────────────────
@@ -155,3 +155,45 @@ def test_empty_compare_cols():
     coinc, _, _, difs = conciliar(df_a, df_b, km, [])
     assert len(coinc) == 2
     assert difs.empty
+
+
+# ── Normalización de fechas ────────────────────────────────────────────────────
+
+def test_try_to_date_slash_long():
+    assert _try_to_date("26/01/2026") == "2026-01-26"
+
+def test_try_to_date_slash_short_with_time():
+    assert _try_to_date("26/1/2026 00:00:00") == "2026-01-26"
+
+def test_try_to_date_iso():
+    assert _try_to_date("2026-01-26") == "2026-01-26"
+
+def test_try_to_date_not_a_date():
+    assert _try_to_date("Juan") is None
+    assert _try_to_date("308743.8") is None
+
+def test_values_differ_date_formats_equal():
+    # Fecha larga vs corta con hora → igual
+    assert _values_differ("26/01/2026", "26/1/2026 00:00:00") is False
+
+def test_values_differ_date_formats_different():
+    assert _values_differ("26/01/2026", "27/01/2026") is True
+
+def test_date_key_normalization_coincidencias():
+    # Columna clave con formatos distintos de la misma fecha
+    df_a = pd.DataFrame({"fecha": ["26/01/2026", "15/03/2025"]})
+    df_b = pd.DataFrame({"fecha": ["26/1/2026 00:00:00", "15/3/2025 00:00:00"]})
+    km = [{"col_a": "fecha", "col_b": "fecha", "fuzzy": False}]
+    coinc, solo_a, solo_b, _ = conciliar(df_a, df_b, km, [])
+    assert len(coinc) == 2
+    assert len(solo_a) == 0
+    assert len(solo_b) == 0
+
+def test_date_compare_no_difference():
+    # Columna comparada con la misma fecha en distinto formato → sin diferencia
+    df_a = pd.DataFrame({"id": [1], "fecha": ["26/01/2026"]})
+    df_b = pd.DataFrame({"id": [1], "fecha": ["26/1/2026 00:00:00"]})
+    km = [{"col_a": "id", "col_b": "id", "fuzzy": False}]
+    cm = [{"col_a": "fecha", "col_b": "fecha"}]
+    _, _, _, difs = conciliar(df_a, df_b, km, cm)
+    assert len(difs) == 0
