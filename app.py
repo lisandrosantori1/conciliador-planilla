@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from core.afip_tipos import AFIP_TIPOS
 from core.comparator import conciliar
 from core.dtype_detector import detect_column_type, VALID_TYPES
 from core.rule_labels import RULE_LABELS, RULE_LABELS_INV
@@ -76,11 +77,11 @@ def _render_type_overrides(df, detected: dict, state_key: str, file_key: str):
 
 
 def _build_compound_code(df: pd.DataFrame, tipo_col: str, pv_col: str, nro_col: str,
-                          dict_df: pd.DataFrame, output_col: str) -> pd.DataFrame:
-    """Construye código de comprobante: pv.zfill(4) + nro.zfill(8) + letra del diccionario.
+                          output_col: str) -> pd.DataFrame:
+    """Construye código de comprobante: pv.zfill(4) + nro.zfill(8) + letra AFIP.
 
     Extrae el código del tipo_col parseando 'N - Descripción' → N,
-    busca N en el diccionario para obtener la letra.
+    normaliza a 3 dígitos y busca en AFIP_TIPOS.
     """
     result = df.copy()
 
@@ -90,22 +91,13 @@ def _build_compound_code(df: pd.DataFrame, tipo_col: str, pv_col: str, nro_col: 
         except (ValueError, TypeError):
             return "0" * width
 
-    def _find_col(cols, candidates):
-        lower = {c.lower().strip(): c for c in cols}
-        for cand in candidates:
-            if cand in lower:
-                return lower[cand]
-        return list(cols)[0]
+    codigos_raw = result[tipo_col].astype(str).str.extract(r"^(\d+)\s*(?:-|$)")[0].str.strip()
+    # Normalizar a 3 dígitos para buscar en el diccionario (ej: "81" → "081", "1" → "001")
+    codigos_norm = codigos_raw.apply(
+        lambda x: str(int(x)).zfill(3) if pd.notna(x) and str(x).strip().isdigit() else ""
+    )
+    letras = codigos_norm.map(AFIP_TIPOS).fillna("")
 
-    cod_col = _find_col(dict_df.columns, ["código", "codigo", "cod", "code"])
-    let_col = _find_col(dict_df.columns, ["letra", "letter"])
-    dict_map = dict(zip(
-        dict_df[cod_col].astype(str).str.strip(),
-        dict_df[let_col].astype(str).str.strip(),
-    ))
-
-    codigos = result[tipo_col].astype(str).str.extract(r"^(\d+)\s*(?:-|$)")[0].str.strip()
-    letras = codigos.map(dict_map).fillna("")
     pv_padded  = result[pv_col].apply(lambda x: _safe_zfill(x, 4))
     nro_padded = result[nro_col].apply(lambda x: _safe_zfill(x, 8))
 
@@ -114,33 +106,14 @@ def _build_compound_code(df: pd.DataFrame, tipo_col: str, pv_col: str, nro_col: 
 
 
 def _render_code_builder_section(df: pd.DataFrame, prefix: str):
-    """UI para construir columna de código de comprobante con padding y diccionario."""
+    """UI para construir columna de código de comprobante (diccionario AFIP integrado)."""
     p = prefix
 
     st.caption(
-        "Formato: **punto de venta** (4 dígitos) + **número de comprobante** (8 dígitos) + **letra** del tipo. "
-        "Ej: punto=1, número=34, tipo='81 - Tique Factura A' → `000100000034A`"
+        "Formato AFIP: **punto de venta** (4 dígitos) + **número de comprobante** (8 dígitos) + **letra** del tipo. "
+        "Ej: punto=1, número=34, tipo='81 - Tique Factura A' → `000100000034A`. "
+        f"Diccionario integrado con {len(AFIP_TIPOS)} tipos de comprobante."
     )
-
-    dict_file = st.file_uploader(
-        "📖 Diccionario de tipos (columnas: Código, Letra)",
-        type=["xlsx", "xls", "csv"],
-        key=f"{p}code_dict_file",
-        help="Excel o CSV con columnas 'Código' y 'Letra'. Ej: Código=81, Letra=A",
-    )
-    if dict_file:
-        try:
-            st.session_state[f"{p}code_dict_df"] = load_dataframe(dict_file.getvalue(), dict_file.name)
-        except Exception:
-            st.error("Error al cargar el diccionario.")
-
-    dict_df = st.session_state.get(f"{p}code_dict_df")
-    if dict_df is None:
-        st.info("Cargá el diccionario para continuar.")
-        return
-
-    with st.expander(f"Vista del diccionario ({len(dict_df)} tipos)", expanded=False):
-        st.dataframe(dict_df.head(20), use_container_width=True)
 
     cfg = st.session_state.setdefault(f"{p}code_cfg", {})
     cols = list(df.columns)
@@ -180,22 +153,12 @@ def _render_code_builder_section(df: pd.DataFrame, prefix: str):
     # Preview con primera fila disponible
     if cfg.get("tipo_col") and cfg.get("pv_col") and cfg.get("nro_col") and not df.empty:
         try:
-            def _fd(cols, cands):
-                lower = {c.lower().strip(): c for c in cols}
-                for c in cands:
-                    if c in lower:
-                        return lower[c]
-                return list(cols)[0]
-
-            c_cod = _fd(dict_df.columns, ["código", "codigo", "cod"])
-            c_let = _fd(dict_df.columns, ["letra", "letter"])
-            dmap = dict(zip(dict_df[c_cod].astype(str).str.strip(), dict_df[c_let].astype(str).str.strip()))
-
             row = df[[cfg["tipo_col"], cfg["pv_col"], cfg["nro_col"]]].dropna().iloc[0]
             tipo_s = str(row[cfg["tipo_col"]])
             m = re.match(r"^(\d+)\s*(?:-|$)", tipo_s)
-            cod_s = m.group(1) if m else "?"
-            letra_s = dmap.get(cod_s, "?")
+            cod_raw = m.group(1) if m else "?"
+            cod_norm = str(int(cod_raw)).zfill(3) if cod_raw.isdigit() else cod_raw
+            letra_s = AFIP_TIPOS.get(cod_norm, "?")
 
             def _sz(v, w):
                 try:
@@ -205,7 +168,7 @@ def _render_code_builder_section(df: pd.DataFrame, prefix: str):
 
             preview = f"{_sz(row[cfg['pv_col']], 4)}{_sz(row[cfg['nro_col']], 8)}{letra_s}"
             st.caption(
-                f"Vista previa (primera fila): tipo=`{tipo_s}` → código={cod_s} → letra=**{letra_s}** "
+                f"Vista previa (primera fila): tipo=`{tipo_s}` → código={cod_norm} → letra=**{letra_s}** "
                 f"| resultado: `{preview}`"
             )
         except Exception:
@@ -215,11 +178,9 @@ def _render_code_builder_section(df: pd.DataFrame, prefix: str):
 def _apply_code_builder(df: pd.DataFrame, col_types: dict, prefix: str) -> tuple[pd.DataFrame, dict]:
     """Aplica el código de comprobante si está configurado. Retorna (df_modificado, col_types_actualizado)."""
     cfg = st.session_state.get(f"{prefix}code_cfg", {})
-    dict_df = st.session_state.get(f"{prefix}code_dict_df")
-    if (dict_df is not None
-            and all(cfg.get(k) for k in ["tipo_col", "pv_col", "nro_col", "output_col"])
+    if (all(cfg.get(k) for k in ["tipo_col", "pv_col", "nro_col", "output_col"])
             and all(cfg[k] in df.columns for k in ["tipo_col", "pv_col", "nro_col"])):
-        df = _build_compound_code(df, cfg["tipo_col"], cfg["pv_col"], cfg["nro_col"], dict_df, cfg["output_col"])
+        df = _build_compound_code(df, cfg["tipo_col"], cfg["pv_col"], cfg["nro_col"], cfg["output_col"])
         col_types = {**col_types, cfg["output_col"]: "str"}
     return df, col_types
 
@@ -613,8 +574,7 @@ def _reset_filters_if_table_changed(table_key: str):
                   "show_code_m1", "show_code_m2a", "show_code_m2b"):
             st.session_state.pop(k, None)
         for prefix in ("m1_", "m2a_", "m2b_"):
-            for k in ("rules", "current_rule", "new_rule", "logic", "vc_defs",
-                      "code_cfg", "code_dict_df"):
+            for k in ("rules", "current_rule", "new_rule", "logic", "vc_defs", "code_cfg"):
                 st.session_state.pop(f"{prefix}{k}", None)
 
 #Comentado por el momento ya que no esta actualizado y molesta. Luego verlo
