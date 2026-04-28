@@ -190,15 +190,41 @@ def _fuzzy_merge(df_a, df_b, key_cols, fuzzy_cols, compare_cols, normalize_cols=
 
 # ── Normalización decimal ──────────────────────────────────────────────────────
 
+def _try_to_date(val) -> str | None:
+    """Parsea un valor como fecha y retorna 'YYYY-MM-DD', o None si no es fecha.
+
+    Reconoce formatos DD/MM/YYYY, D/M/YYYY HH:MM:SS, YYYY-MM-DD, etc.
+    Usa dayfirst=True (convención argentina DD/MM/YYYY).
+    """
+    s = str(val).strip()
+    if not s or s.lower() in ("nan", "none", ""):
+        return None
+    # Solo intentar si hay separadores típicos de fecha (/ o -)
+    if "/" not in s and "-" not in s:
+        return None
+    try:
+        # Formato ISO (YYYY-MM-DD): no necesita dayfirst
+        if s[:4].isdigit() and len(s) >= 8 and s[4] == "-":
+            dt = pd.to_datetime(s)
+        else:
+            dt = pd.to_datetime(s, dayfirst=True)
+        return dt.strftime("%Y-%m-%d")
+    except (ValueError, TypeError, OverflowError):
+        return None
+
+
 def _normalize_scalar(val) -> str:
     """Versión escalar de normalización para uso en listas."""
     if pd.isna(val):
         return ""
     s = str(val).strip()
     f = _try_to_float(s)
-    if f is None:
-        return s
-    return str(int(f)) if f == int(f) else f"{f:.10g}"
+    if f is not None:
+        return str(int(f)) if f == int(f) else f"{f:.10g}"
+    d = _try_to_date(s)
+    if d is not None:
+        return d
+    return s
 
 
 def _normalize_key_col(series: pd.Series) -> pd.Series:
@@ -251,7 +277,7 @@ def _try_to_float(val) -> float | None:
 # ── Detección de diferencias ───────────────────────────────────────────────────
 
 def _values_differ(a_val, b_val) -> bool:
-    """Compara dos valores considerando formatos decimales equivalentes."""
+    """Compara dos valores considerando formatos decimales y de fecha equivalentes."""
     a_str = str(a_val).strip()
     b_str = str(b_val).strip()
     if a_str == b_str:
@@ -260,6 +286,10 @@ def _values_differ(a_val, b_val) -> bool:
     b_f = _try_to_float(b_str)
     if a_f is not None and b_f is not None:
         return a_f != b_f
+    a_d = _try_to_date(a_str)
+    b_d = _try_to_date(b_str)
+    if a_d is not None and b_d is not None:
+        return a_d != b_d
     return a_str != b_str
 
 
