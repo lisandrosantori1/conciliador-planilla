@@ -1,4 +1,5 @@
 import logging
+import re
 from io import BytesIO
 
 import numpy as np
@@ -72,6 +73,155 @@ def _render_type_overrides(df, detected: dict, state_key: str, file_key: str):
                 )
                 overrides[col_name] = new_type
     return overrides
+
+
+def _build_compound_code(df: pd.DataFrame, tipo_col: str, pv_col: str, nro_col: str,
+                          dict_df: pd.DataFrame, output_col: str) -> pd.DataFrame:
+    """Construye código de comprobante: pv.zfill(4) + nro.zfill(8) + letra del diccionario.
+
+    Extrae el código del tipo_col parseando 'N - Descripción' → N,
+    busca N en el diccionario para obtener la letra.
+    """
+    result = df.copy()
+
+    def _safe_zfill(val, width):
+        try:
+            return str(int(float(str(val).replace(",", ".").strip()))).zfill(width)
+        except (ValueError, TypeError):
+            return "0" * width
+
+    def _find_col(cols, candidates):
+        lower = {c.lower().strip(): c for c in cols}
+        for cand in candidates:
+            if cand in lower:
+                return lower[cand]
+        return list(cols)[0]
+
+    cod_col = _find_col(dict_df.columns, ["código", "codigo", "cod", "code"])
+    let_col = _find_col(dict_df.columns, ["letra", "letter"])
+    dict_map = dict(zip(
+        dict_df[cod_col].astype(str).str.strip(),
+        dict_df[let_col].astype(str).str.strip(),
+    ))
+
+    codigos = result[tipo_col].astype(str).str.extract(r"^(\d+)\s*(?:-|$)")[0].str.strip()
+    letras = codigos.map(dict_map).fillna("")
+    pv_padded  = result[pv_col].apply(lambda x: _safe_zfill(x, 4))
+    nro_padded = result[nro_col].apply(lambda x: _safe_zfill(x, 8))
+
+    result[output_col] = pv_padded + nro_padded + letras
+    return result
+
+
+def _render_code_builder_section(df: pd.DataFrame, prefix: str):
+    """UI para construir columna de código de comprobante con padding y diccionario."""
+    p = prefix
+
+    st.caption(
+        "Formato: **punto de venta** (4 dígitos) + **número de comprobante** (8 dígitos) + **letra** del tipo. "
+        "Ej: punto=1, número=34, tipo='81 - Tique Factura A' → `000100000034A`"
+    )
+
+    dict_file = st.file_uploader(
+        "📖 Diccionario de tipos (columnas: Código, Letra)",
+        type=["xlsx", "xls", "csv"],
+        key=f"{p}code_dict_file",
+        help="Excel o CSV con columnas 'Código' y 'Letra'. Ej: Código=81, Letra=A",
+    )
+    if dict_file:
+        try:
+            st.session_state[f"{p}code_dict_df"] = load_dataframe(dict_file.getvalue(), dict_file.name)
+        except Exception:
+            st.error("Error al cargar el diccionario.")
+
+    dict_df = st.session_state.get(f"{p}code_dict_df")
+    if dict_df is None:
+        st.info("Cargá el diccionario para continuar.")
+        return
+
+    with st.expander(f"Vista del diccionario ({len(dict_df)} tipos)", expanded=False):
+        st.dataframe(dict_df.head(20), use_container_width=True)
+
+    cfg = st.session_state.setdefault(f"{p}code_cfg", {})
+    cols = list(df.columns)
+    sc1, sc2, sc3, sc4 = st.columns(4)
+
+    with sc1:
+        cfg["tipo_col"] = st.selectbox(
+            "Columna tipo (descripción)",
+            cols,
+            index=cols.index(cfg["tipo_col"]) if cfg.get("tipo_col") in cols else 0,
+            key=f"{p}code_tipo",
+            help="Ej: '81 - Tique Factura A'. Se extrae el número antes del ' - '.",
+        )
+    with sc2:
+        cfg["pv_col"] = st.selectbox(
+            "Punto de venta → 4 dígitos",
+            cols,
+            index=cols.index(cfg["pv_col"]) if cfg.get("pv_col") in cols else 0,
+            key=f"{p}code_pv",
+            help="1 → 0001 · 12 → 0012",
+        )
+    with sc3:
+        cfg["nro_col"] = st.selectbox(
+            "Número de comprobante → 8 dígitos",
+            cols,
+            index=cols.index(cfg["nro_col"]) if cfg.get("nro_col") in cols else 0,
+            key=f"{p}code_nro",
+            help="34 → 00000034 · 1000 → 00001000",
+        )
+    with sc4:
+        cfg["output_col"] = st.text_input(
+            "Nombre columna resultado",
+            value=cfg.get("output_col", "Codigo_Comprobante"),
+            key=f"{p}code_out",
+        )
+
+    # Preview con primera fila disponible
+    if cfg.get("tipo_col") and cfg.get("pv_col") and cfg.get("nro_col") and not df.empty:
+        try:
+            def _fd(cols, cands):
+                lower = {c.lower().strip(): c for c in cols}
+                for c in cands:
+                    if c in lower:
+                        return lower[c]
+                return list(cols)[0]
+
+            c_cod = _fd(dict_df.columns, ["código", "codigo", "cod"])
+            c_let = _fd(dict_df.columns, ["letra", "letter"])
+            dmap = dict(zip(dict_df[c_cod].astype(str).str.strip(), dict_df[c_let].astype(str).str.strip()))
+
+            row = df[[cfg["tipo_col"], cfg["pv_col"], cfg["nro_col"]]].dropna().iloc[0]
+            tipo_s = str(row[cfg["tipo_col"]])
+            m = re.match(r"^(\d+)\s*(?:-|$)", tipo_s)
+            cod_s = m.group(1) if m else "?"
+            letra_s = dmap.get(cod_s, "?")
+
+            def _sz(v, w):
+                try:
+                    return str(int(float(str(v).replace(",", ".").strip()))).zfill(w)
+                except Exception:
+                    return "?" * w
+
+            preview = f"{_sz(row[cfg['pv_col']], 4)}{_sz(row[cfg['nro_col']], 8)}{letra_s}"
+            st.caption(
+                f"Vista previa (primera fila): tipo=`{tipo_s}` → código={cod_s} → letra=**{letra_s}** "
+                f"| resultado: `{preview}`"
+            )
+        except Exception:
+            pass
+
+
+def _apply_code_builder(df: pd.DataFrame, col_types: dict, prefix: str) -> tuple[pd.DataFrame, dict]:
+    """Aplica el código de comprobante si está configurado. Retorna (df_modificado, col_types_actualizado)."""
+    cfg = st.session_state.get(f"{prefix}code_cfg", {})
+    dict_df = st.session_state.get(f"{prefix}code_dict_df")
+    if (dict_df is not None
+            and all(cfg.get(k) for k in ["tipo_col", "pv_col", "nro_col", "output_col"])
+            and all(cfg[k] in df.columns for k in ["tipo_col", "pv_col", "nro_col"])):
+        df = _build_compound_code(df, cfg["tipo_col"], cfg["pv_col"], cfg["nro_col"], dict_df, cfg["output_col"])
+        col_types = {**col_types, cfg["output_col"]: "str"}
+    return df, col_types
 
 
 def _apply_filters(df, rules, logic, col_types):
@@ -459,10 +609,12 @@ def _reset_filters_if_table_changed(table_key: str):
         for k in ("key_mappings", "compare_mappings", "concil_results",
                   "calc_definitions", "calc_applied",
                   "show_filters_m1", "show_filters_m2", "show_filters_m2b",
-                  "show_vc_m1", "show_vc_m2a", "show_vc_m2b"):
+                  "show_vc_m1", "show_vc_m2a", "show_vc_m2b",
+                  "show_code_m1", "show_code_m2a", "show_code_m2b"):
             st.session_state.pop(k, None)
         for prefix in ("m1_", "m2a_", "m2b_"):
-            for k in ("rules", "current_rule", "new_rule", "logic", "vc_defs"):
+            for k in ("rules", "current_rule", "new_rule", "logic", "vc_defs",
+                      "code_cfg", "code_dict_df"):
                 st.session_state.pop(f"{prefix}{k}", None)
 
 #Comentado por el momento ya que no esta actualizado y molesta. Luego verlo
@@ -555,6 +707,19 @@ if len(loaded_tables) == 1:
         "Podés exportar todos los datos o aplicar filtros para quedarte con un subconjunto."
     )
 
+    # ── Código de comprobante ──────────────────────────────────────────────────
+    show_code = st.checkbox(
+        "🔤 Construir columna de código de comprobante (opcional)",
+        key="show_code_m1",
+        help="Genera un código combinando punto de venta, número y letra del tipo (formato AFIP).",
+    )
+    if show_code:
+        with st.container(border=True):
+            st.markdown("#### 🔤 Construir código de comprobante")
+            _render_code_builder_section(df, "m1_")
+    if show_code:
+        df, col_types = _apply_code_builder(df, col_types, "m1_")
+
     # ── Cambios de valor condicionales ────────────────────────────────────────
     show_vc = st.checkbox(
         "🔄 Cambios de valor condicionales (opcional)",
@@ -641,6 +806,30 @@ else:
     if df_a.empty or df_b.empty:
         st.error("Una de las tablas seleccionadas está vacía.")
         st.stop()
+
+    # ── Código de comprobante (opcional, antes del mapeo) ──────────────────────
+    show_code_a = st.checkbox(
+        f"🔤 Construir código de comprobante en {sel_a} (opcional)",
+        key="show_code_m2a",
+        help="Genera un código combinando punto de venta, número y letra del tipo (formato AFIP).",
+    )
+    if show_code_a:
+        with st.container(border=True):
+            st.markdown(f"#### 🔤 Construir código — {sel_a}")
+            _render_code_builder_section(df_a, "m2a_")
+        df_a, col_types_a = _apply_code_builder(df_a, col_types_a, "m2a_")
+        col_types = col_types_a
+
+    show_code_b = st.checkbox(
+        f"🔤 Construir código de comprobante en {sel_b} (opcional)",
+        key="show_code_m2b",
+        help="Genera un código combinando punto de venta, número y letra del tipo (formato AFIP).",
+    )
+    if show_code_b:
+        with st.container(border=True):
+            st.markdown(f"#### 🔤 Construir código — {sel_b}")
+            _render_code_builder_section(df_b, "m2b_")
+        df_b, col_types_b = _apply_code_builder(df_b, col_types_b, "m2b_")
 
     # ── Paso 2: Mapeo de columnas (requerido) ──────────────────────────────────
     mapper_key = f"a{table_a['idx']}-b{table_b['idx']}-{df_a.shape}-{df_b.shape}-{list(df_a.columns)[:5]}"
