@@ -255,7 +255,13 @@ def _apply_calc_cols(df: pd.DataFrame, defs: list) -> pd.DataFrame:
         try:
             op = d.get("op", "×")
             a = pd.to_numeric(result[c1], errors="coerce")
-            b = pd.to_numeric(result[c2], errors="coerce")
+            # col2: puede ser columna o valor constante
+            if d.get("col2_use_const"):
+                b = float(d.get("col2_const_val") or 0)
+            else:
+                if c2 not in result.columns:
+                    continue
+                b = pd.to_numeric(result[c2], errors="coerce")
             if op == "×":
                 series = a * b
             elif op == "+":
@@ -263,16 +269,19 @@ def _apply_calc_cols(df: pd.DataFrame, defs: list) -> pd.DataFrame:
             elif op == "-":
                 series = a - b
             elif op == "÷":
-                series = np.where(b != 0, a / b, np.nan)
+                series = np.where(b != 0, a / b, np.nan) if not isinstance(b, float) else (a / b if b != 0 else np.nan)
             else:
                 series = a * b
-            # Operandos extra encadenados
+            # Operandos extra encadenados (columna o constante)
             for es in d.get("extra_steps", []):
-                ec = es.get("col")
                 eop = es.get("op", "×")
-                if not ec or ec not in result.columns:
-                    continue
-                e = pd.to_numeric(result[ec], errors="coerce")
+                if es.get("use_const"):
+                    e = float(es.get("const_val") or 0)
+                else:
+                    ec = es.get("col")
+                    if not ec or ec not in result.columns:
+                        continue
+                    e = pd.to_numeric(result[ec], errors="coerce")
                 if eop == "×":
                     series = series * e
                 elif eop == "+":
@@ -280,7 +289,7 @@ def _apply_calc_cols(df: pd.DataFrame, defs: list) -> pd.DataFrame:
                 elif eop == "-":
                     series = series - e
                 elif eop == "÷":
-                    series = np.where(e != 0, series / e, np.nan)
+                    series = np.where(e != 0, series / e, np.nan) if not isinstance(e, float) else (series / e if e != 0 else np.nan)
             result[name] = series
         except Exception:
             logger.exception(f"Error calculando columna '{name}'")
@@ -338,11 +347,22 @@ def _render_calc_cols_section(coinc: pd.DataFrame):
                     key=f"cd_op_{i}", label_visibility="collapsed",
                 )
             with c3:
-                d["col2"] = st.selectbox(
-                    "Col 2", numeric_cols,
-                    index=numeric_cols.index(d["col2"]) if d.get("col2") in numeric_cols else 0,
-                    key=f"cd_c2_{i}", label_visibility="collapsed",
+                d["col2_use_const"] = st.checkbox(
+                    "Valor fijo", value=d.get("col2_use_const", False),
+                    key=f"cd_c2const_{i}",
+                    help="Usá un número fijo como operando (ej: 100 para dividir un porcentaje).",
                 )
+                if d["col2_use_const"]:
+                    d["col2_const_val"] = st.number_input(
+                        "", value=float(d.get("col2_const_val") or 100.0),
+                        key=f"cd_c2val_{i}", label_visibility="collapsed",
+                    )
+                else:
+                    d["col2"] = st.selectbox(
+                        "", numeric_cols,
+                        index=numeric_cols.index(d["col2"]) if d.get("col2") in numeric_cols else 0,
+                        key=f"cd_c2_{i}", label_visibility="collapsed",
+                    )
             with c4:
                 d["name"] = st.text_input(
                     "Nombre", value=d.get("name", f"Calculada_{i + 1}"),
@@ -366,11 +386,22 @@ def _render_calc_cols_section(coinc: pd.DataFrame):
                         key=f"cd_es_{i}_{ei}_op", label_visibility="collapsed",
                     )
                 with ec2:
-                    es["col"] = st.selectbox(
-                        "Col", numeric_cols,
-                        index=numeric_cols.index(es["col"]) if es.get("col") in numeric_cols else 0,
-                        key=f"cd_es_{i}_{ei}_col", label_visibility="collapsed",
+                    es["use_const"] = st.checkbox(
+                        "Valor fijo", value=es.get("use_const", False),
+                        key=f"cd_es_{i}_{ei}_const",
+                        help="Usá un número fijo como operando (ej: 100 para dividir un porcentaje).",
                     )
+                    if es["use_const"]:
+                        es["const_val"] = st.number_input(
+                            "", value=float(es.get("const_val") or 100.0),
+                            key=f"cd_es_{i}_{ei}_cval", label_visibility="collapsed",
+                        )
+                    else:
+                        es["col"] = st.selectbox(
+                            "", numeric_cols,
+                            index=numeric_cols.index(es["col"]) if es.get("col") in numeric_cols else 0,
+                            key=f"cd_es_{i}_{ei}_col", label_visibility="collapsed",
+                        )
                 with ec5:
                     st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
                     if st.button("❌", key=f"cd_es_{i}_{ei}_del"):
@@ -388,9 +419,15 @@ def _render_calc_cols_section(coinc: pd.DataFrame):
 
             # Preview de la fórmula con paréntesis que reflejan el orden de evaluación
             name_p = d.get("name") or f"Calculada_{i + 1}"
-            formula = f"`{d.get('col1', '?')}` **{d.get('op', '×')}** `{d.get('col2', '?')}`"
+            col2_str = (f"**{d.get('col2_const_val', '?')}**"
+                        if d.get("col2_use_const")
+                        else f"`{d.get('col2', '?')}`")
+            formula = f"`{d.get('col1', '?')}` **{d.get('op', '×')}** {col2_str}"
             for es in d["extra_steps"]:
-                formula = f"({formula}) **{es.get('op', '×')}** `{es.get('col', '?')}`"
+                es_str = (f"**{es.get('const_val', '?')}**"
+                          if es.get("use_const")
+                          else f"`{es.get('col', '?')}`")
+                formula = f"({formula}) **{es.get('op', '×')}** {es_str}"
             st.caption(f"→ **{name_p}** = {formula}")
 
     for i in reversed(to_delete):
