@@ -85,7 +85,37 @@ def _apply_filters(df, rules, logic, col_types):
         if m is None:
             continue
         mask = m if mask is None else (mask & m if logic == "AND" else mask | m)
-    return df[mask] if mask is not None else df
+
+    filtered = df[mask].copy() if mask is not None else df.copy()
+
+    # Aplicar transformaciones por regla a las filas del resultado filtrado
+    for r in rules:
+        transforms = r.get("transforms", [])
+        if not transforms:
+            continue
+        rule_mask = apply_rule(
+            filtered[r["col"]], r["condition"], r.get("value"), r.get("value2"),
+            dtype=col_types.get(r["col"], "str"),
+        )
+        if rule_mask is None:
+            continue
+        for t in transforms:
+            tcol, op, tval = t.get("col"), t.get("op", "×-1"), t.get("val")
+            if not tcol or tcol not in filtered.columns:
+                continue
+            numeric = pd.to_numeric(filtered.loc[rule_mask, tcol], errors="coerce")
+            if op == "×-1":
+                filtered.loc[rule_mask, tcol] = numeric * -1
+            elif op == "×" and tval is not None:
+                filtered.loc[rule_mask, tcol] = numeric * tval
+            elif op == "+" and tval is not None:
+                filtered.loc[rule_mask, tcol] = numeric + tval
+            elif op == "-" and tval is not None:
+                filtered.loc[rule_mask, tcol] = numeric - tval
+            elif op == "÷" and tval is not None and tval != 0:
+                filtered.loc[rule_mask, tcol] = numeric / tval
+
+    return filtered
 
 
 def _apply_calc_cols(df: pd.DataFrame, defs: list) -> pd.DataFrame:

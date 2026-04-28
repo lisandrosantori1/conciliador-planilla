@@ -281,4 +281,50 @@ def rule_builder(df, col_types, state_prefix=""):
                         st.session_state[f"{p}rules"].pop(i)
                         st.rerun()
 
+                # ── Transformaciones (indentadas, opcionales) ──────────────────
+                _, transform_area = st.columns([1, 11])
+                with transform_area:
+                    r.setdefault("transforms", [])
+                    r["show_transforms"] = st.checkbox(
+                        "Modificar una o más columnas para estas filas",
+                        value=r.get("show_transforms", False),
+                        key=f"{p}rule_{r['id']}_show_tr",
+                        help="Aplicá una operación numérica a una columna en las filas que cumplan esta regla.",
+                    )
+                    if r["show_transforms"]:
+                        TRANSFORM_OPS = ["×-1", "×", "+", "-", "÷"]
+                        to_del_tr = []
+                        for ti, t in enumerate(r["transforms"]):
+                            tc1, tc2, tc3, tc4 = st.columns([3, 2, 3, 1])
+                            with tc1:
+                                t["col"] = st.selectbox(
+                                    "Col", list(df.columns),
+                                    index=list(df.columns).index(t["col"]) if t.get("col") in df.columns else 0,
+                                    key=f"{p}tr_{r['id']}_{ti}_col", label_visibility="collapsed",
+                                )
+                            with tc2:
+                                t["op"] = st.selectbox(
+                                    "Op", TRANSFORM_OPS,
+                                    index=TRANSFORM_OPS.index(t.get("op", "×-1")),
+                                    key=f"{p}tr_{r['id']}_{ti}_op", label_visibility="collapsed",
+                                )
+                            with tc3:
+                                if t.get("op", "×-1") != "×-1":
+                                    t["val"] = st.number_input(
+                                        "Val", value=float(t.get("val") or 1.0),
+                                        key=f"{p}tr_{r['id']}_{ti}_val", label_visibility="collapsed",
+                                    )
+                                else:
+                                    st.caption("Cambia el signo (×−1)")
+                            with tc4:
+                                st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+                                if st.button("❌", key=f"{p}tr_{r['id']}_{ti}_del"):
+                                    to_del_tr.append(ti)
+                        for ti in reversed(to_del_tr):
+                            r["transforms"].pop(ti)
+                            st.rerun()
+                        if st.button("➕ Agregar transformación", key=f"{p}tr_{r['id']}_add"):
+                            r["transforms"].append({"col": list(df.columns)[0], "op": "×-1", "val": None})
+                            st.rerun()
+
     return st.session_state[f"{p}rules"], st.session_state[f"{p}logic"]
