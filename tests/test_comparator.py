@@ -197,3 +197,49 @@ def test_date_compare_no_difference():
     cm = [{"col_a": "fecha", "col_b": "fecha"}]
     _, _, _, difs = conciliar(df_a, df_b, km, cm)
     assert len(difs) == 0
+
+
+# ── compare con fuzzy: columna clave también en compare ───────────────────────
+
+def test_fuzzy_key_also_compare_detects_diff():
+    # Clave fuzzy: "46348199" coincide con "K46348199"
+    # Compare sin fuzzy → debe detectar diferencia (valores originales difieren)
+    df_a = pd.DataFrame({"cod": ["46348199"], "val": [100]})
+    df_b = pd.DataFrame({"cod": ["K46348199"], "val": [100]})
+    km = [{"col_a": "cod", "col_b": "cod", "fuzzy": True}]
+    cm = [{"col_a": "cod", "col_b": "cod", "fuzzy": False, "normalize": False}]
+    coinc, _, _, difs = conciliar(df_a, df_b, km, cm)
+    assert len(coinc) == 1
+    assert len(difs) == 1
+    assert difs.iloc[0]["cod_A"] == "46348199"
+    assert difs.iloc[0]["cod_B"] == "K46348199"
+
+
+def test_fuzzy_key_also_compare_with_fuzzy_no_diff():
+    # Misma situación pero compare también usa fuzzy → no diferencia
+    df_a = pd.DataFrame({"cod": ["46348199"], "val": [100]})
+    df_b = pd.DataFrame({"cod": ["K46348199"], "val": [100]})
+    km = [{"col_a": "cod", "col_b": "cod", "fuzzy": True}]
+    cm = [{"col_a": "cod", "col_b": "cod", "fuzzy": True, "normalize": False}]
+    _, _, _, difs = conciliar(df_a, df_b, km, cm)
+    assert len(difs) == 0
+
+
+def test_compare_normalize_no_diff():
+    # Compare con normalize: "20-12345678-9" y "20123456789" → sin diferencia
+    df_a = pd.DataFrame({"cuit": ["20123456789"], "val": [1]})
+    df_b = pd.DataFrame({"cuit": ["20-12345678-9"], "val": [1]})
+    km = [{"col_a": "cuit", "col_b": "cuit", "fuzzy": False, "normalize": True}]
+    cm = [{"col_a": "val", "col_b": "val", "fuzzy": False, "normalize": False}]
+    _, _, _, difs = conciliar(df_a, df_b, km, cm)
+    assert len(difs) == 0
+
+
+def test_compare_normalize_detects_diff():
+    # Compare con normalize=False sobre CUIT con guiones → detecta diferencia
+    df_a = pd.DataFrame({"id": ["1"], "cuit": ["20123456789"]})
+    df_b = pd.DataFrame({"id": ["1"], "cuit": ["20-12345678-9"]})
+    km = [{"col_a": "id", "col_b": "id", "fuzzy": False}]
+    cm = [{"col_a": "cuit", "col_b": "cuit", "fuzzy": False, "normalize": False}]
+    _, _, _, difs = conciliar(df_a, df_b, km, cm)
+    assert len(difs) == 1

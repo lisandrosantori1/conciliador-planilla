@@ -79,7 +79,7 @@ def conciliar(df_a, df_b, key_mappings, compare_mappings, keep_b_keys=False):
             for df in [coincidencias, solo_a, solo_b]:
                 df.drop(columns=["__bidx__"], inplace=True, errors="ignore")
 
-    diferencias = _find_differences(coincidencias, compare_cols, key_cols_a)
+    diferencias = _find_differences(coincidencias, compare_mappings, key_cols_a)
     return coincidencias, solo_a, solo_b, diferencias
 
 
@@ -176,6 +176,15 @@ def _fuzzy_merge(df_a, df_b, key_cols, fuzzy_cols, compare_cols, normalize_cols=
         coincidencias = pd.concat([rows_a_out, rows_b_out], axis=1)
         coincidencias["_merge"] = "both"
         coincidencias["__b_matched_idx__"] = matched_b
+
+        # Para columnas clave que también están en compare_cols, agregar _A y _B
+        # para que _find_differences pueda comparar los valores originales de ambas tablas
+        key_cols_in_compare = [c for c in key_cols if c in set(compare_cols or [])]
+        for col in key_cols_in_compare:
+            if col in coincidencias.columns and f"{col}_A" not in coincidencias.columns:
+                coincidencias[f"{col}_A"] = coincidencias[col].values
+            if col in rows_b.columns and f"{col}_B" not in coincidencias.columns:
+                coincidencias[f"{col}_B"] = rows_b[col].values
     else:
         coincidencias = pd.DataFrame()
 
@@ -298,13 +307,23 @@ def _values_differ(a_val, b_val) -> bool:
     return a_str != b_str
 
 
-def _find_differences(coincidencias, compare_cols, key_cols):
-    """Detecta filas con diferencias usando comparación vectorizada por columna."""
-    if not compare_cols or coincidencias.empty:
+def _find_differences(coincidencias, compare_mappings, key_cols):
+    """Detecta filas con diferencias usando comparación vectorizada por columna.
+
+    compare_mappings: lista de {"col_a", "col_b", "fuzzy", "normalize"}.
+    Si fuzzy=True considera iguales cuando uno contiene al otro.
+    Si normalize=True elimina guiones/espacios antes de comparar.
+    """
+    if not compare_mappings or coincidencias.empty:
         return pd.DataFrame()
 
+    compare_cols = [m["col_a"] for m in compare_mappings]
+
     diff_flags = {}
-    for col in compare_cols:
+    for m in compare_mappings:
+        col = m["col_a"]
+        fuzzy = m.get("fuzzy", False)
+        normalize_flag = m.get("normalize", False)
         col_a_name = f"{col}_A"
         col_b_name = f"{col}_B"
         if col_a_name not in coincidencias.columns or col_b_name not in coincidencias.columns:
@@ -312,11 +331,23 @@ def _find_differences(coincidencias, compare_cols, key_cols):
         a = coincidencias[col_a_name]
         b = coincidencias[col_b_name]
         both_null = a.isna() & b.isna()
-        str_diff = pd.Series(
-            [_values_differ(av, bv) for av, bv in zip(a.fillna(""), b.fillna(""))],
-            index=a.index,
-            dtype=bool,
-        )
+        if fuzzy:
+            str_diff = pd.Series(
+                [not _fuzzy_key_match(str(av), str(bv))
+                 for av, bv in zip(a.fillna(""), b.fillna(""))],
+                index=a.index, dtype=bool,
+            )
+        elif normalize_flag:
+            str_diff = pd.Series(
+                [_normalize_id_scalar(av) != _normalize_id_scalar(bv)
+                 for av, bv in zip(a.fillna(""), b.fillna(""))],
+                index=a.index, dtype=bool,
+            )
+        else:
+            str_diff = pd.Series(
+                [_values_differ(av, bv) for av, bv in zip(a.fillna(""), b.fillna(""))],
+                index=a.index, dtype=bool,
+            )
         diff_flags[col] = ~both_null & str_diff
 
     if not diff_flags:
