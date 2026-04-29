@@ -72,11 +72,11 @@ def _key_mapping_row(df_a, df_b, mapping: dict, row_key: str):
 
 
 def _compare_mapping_row(df_a, df_b, mapping: dict, row_key: str):
-    """Renderiza una fila de columna a comparar (sin opción fuzzy)."""
+    """Renderiza una fila de columna a comparar con opciones de comparación."""
     cols_a = list(df_a.columns)
     cols_b = list(df_b.columns)
 
-    c1, arrow, c2, c3 = st.columns([5, 1, 5, 1])
+    c1, arrow, c2, c_opts, c_del = st.columns([4, 1, 4, 3, 1])
 
     with c1:
         idx_a = cols_a.index(mapping["col_a"]) if mapping["col_a"] in cols_a else 0
@@ -93,7 +93,28 @@ def _compare_mapping_row(df_a, df_b, mapping: dict, row_key: str):
             "Tabla B", cols_b, index=idx_b, key=f"{row_key}_b", label_visibility="collapsed"
         )
 
-    with c3:
+    with c_opts:
+        st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
+        mapping["fuzzy"] = st.checkbox(
+            "Aproximado",
+            value=mapping.get("fuzzy", False),
+            key=f"{row_key}_fuzzy",
+            help=(
+                "Considera iguales los valores cuando uno contiene al otro. "
+                "Ej: '000100000034A' y '34' → sin diferencia."
+            ),
+        )
+        mapping["normalize"] = st.checkbox(
+            "Norm. CUIT/DNI",
+            value=mapping.get("normalize", False),
+            key=f"{row_key}_normalize",
+            help=(
+                "Elimina guiones/espacios antes de comparar. "
+                "Ej: '20-12345678-9' y '20123456789' → sin diferencia."
+            ),
+        )
+
+    with c_del:
         st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
         if st.button("❌", key=f"{row_key}_del"):
             return True
@@ -163,7 +184,7 @@ def column_mapper(df_a, df_b, file_key: str):
         )
 
         if st.session_state.compare_mappings:
-            c_head1, _, c_head2, _ = st.columns([5, 1, 5, 1])
+            c_head1, _, c_head2, c_head3, _ = st.columns([4, 1, 4, 3, 1])
             with c_head1:
                 st.markdown("**Tabla A**")
             with c_head2:
@@ -182,6 +203,8 @@ def column_mapper(df_a, df_b, file_key: str):
             st.session_state.compare_mappings.append({
                 "col_a": df_a.columns[0],
                 "col_b": df_b.columns[0],
+                "fuzzy": False,
+                "normalize": False,
             })
             st.rerun()
 
