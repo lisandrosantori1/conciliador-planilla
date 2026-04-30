@@ -137,7 +137,7 @@ def rule_builder(df, col_types, state_prefix=""):
         with st.container(border=True):
             st.info("✏️ Configurá la regla: elegí columna → condición → valor, luego **✅ Aplicar**.")
 
-        col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
+        col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
 
         with col1:
             prev_col = rule["col"]
@@ -164,25 +164,30 @@ def rule_builder(df, col_types, state_prefix=""):
 
         with col4:
             st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
-            if st.button("❌", key=f"{p}cancel_current"):
+            sub_ok, sub_x = st.columns(2)
+            with sub_ok:
+                apply_clicked = st.button("✅", key=f"{p}apply_current")
+            with sub_x:
+                cancel_clicked = st.button("❌", key=f"{p}cancel_current")
+
+        if cancel_clicked:
+            st.session_state[f"{p}current_rule"] = None
+            st.rerun()
+        if apply_clicked:
+            if rule["condition"] == "between":
+                valid = not is_empty(rule["value"]) and not is_empty(rule["value2"])
+            else:
+                valid = not is_empty(rule["value"])
+            if valid:
+                st.session_state[f"{p}rules"].append({
+                    "id": str(uuid.uuid4()),
+                    **rule,
+                    "status": "aplicada"
+                })
                 st.session_state[f"{p}current_rule"] = None
                 st.rerun()
-            if st.button("✅", key=f"{p}apply_current"):
-                if rule["condition"] == "between":
-                    valid = not is_empty(rule["value"]) and not is_empty(rule["value2"])
-                else:
-                    valid = not is_empty(rule["value"])
-
-                if valid:
-                    st.session_state[f"{p}rules"].append({
-                        "id": str(uuid.uuid4()),
-                        **rule,
-                        "status": "aplicada"
-                    })
-                    st.session_state[f"{p}current_rule"] = None
-                    st.rerun()
-                else:
-                    st.error("Completa la regla antes de aplicarla")
+            else:
+                st.error("Completa la regla antes de aplicarla")
 
     if st.session_state[f"{p}rules"]:
         with st.container(border=True):
