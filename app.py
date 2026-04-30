@@ -5,6 +5,7 @@ from io import BytesIO
 import numpy as np
 import pandas as pd
 import streamlit as st
+from openpyxl.styles import PatternFill
 
 from core.afip_tipos import AFIP_TIPOS
 from core.comparator import conciliar
@@ -31,6 +32,23 @@ if "n_tables" not in st.session_state:
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+_DIFF_FILL = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
+
+
+def _highlight_diff_cells(ws) -> None:
+    """Aplica fondo amarillo claro a las celdas _A y _B en la hoja Diferencias."""
+    headers = [cell.value for cell in ws[1]]
+    diff_col_indices = {
+        i + 1  # openpyxl usa índice 1-based
+        for i, h in enumerate(headers)
+        if h and (str(h).endswith("_A") or str(h).endswith("_B"))
+    }
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+        for cell in row:
+            if cell.column in diff_col_indices:
+                cell.fill = _DIFF_FILL
+
 
 def _render_file_loader(label: str, col_key: str):
     file = st.file_uploader(label, type=accepted_extensions(), key=f"file_{col_key}")
@@ -1001,6 +1019,7 @@ else:
                     ]
                     dif_export = diferencias[dif_cols] if dif_cols else diferencias
                     dif_export.to_excel(writer, index=False, sheet_name="Diferencias")
+                    _highlight_diff_cells(writer.sheets["Diferencias"])
                 if show_solo_a:
                     solo_a.drop(columns=["_merge"], errors="ignore").to_excel(
                         writer, index=False, sheet_name=f"Solo {sel_a}"[:31]
