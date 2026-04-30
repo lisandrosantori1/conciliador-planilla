@@ -137,7 +137,7 @@ def rule_builder(df, col_types, state_prefix=""):
         with st.container(border=True):
             st.info("✏️ Configurá la regla: elegí columna → condición → valor, luego **✅ Aplicar**.")
 
-        col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
+        col1, col2, col3, col_ok, col_x = st.columns([2, 2, 2, 1, 1])
 
         with col1:
             prev_col = rule["col"]
@@ -162,13 +162,13 @@ def rule_builder(df, col_types, state_prefix=""):
         with col3:
             _render_value_input(rule, col_types, key_prefix=f"{p}current")
 
-        with col4:
+        with col_ok:
             st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
-            sub_ok, sub_x = st.columns(2)
-            with sub_ok:
-                apply_clicked = st.button("✅", key=f"{p}apply_current")
-            with sub_x:
-                cancel_clicked = st.button("❌", key=f"{p}cancel_current")
+            apply_clicked = st.button("✅", key=f"{p}apply_current")
+
+        with col_x:
+            st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+            cancel_clicked = st.button("❌", key=f"{p}cancel_current")
 
         if cancel_clicked:
             st.session_state[f"{p}current_rule"] = None
