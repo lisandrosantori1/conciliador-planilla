@@ -2,6 +2,11 @@
 
 import streamlit as st
 
+# Proporción de columnas compartida por filas de mapeo y encabezados
+_COLS = [4, 1, 4, 2, 2, 1]   # Tabla-A | ↔ | Tabla-B | Aproximado | Norm.CUIT/DNI | ❌
+
+_SPACER = "<div style='margin-top:28px'></div>"
+
 
 def _default_key_mappings(df_a, df_b):
     """Pre-popula el mapeo con la primera columna en común, si existe."""
@@ -20,11 +25,11 @@ def _init_state(df_a, df_b, file_key: str):
 
 
 def _key_mapping_row(df_a, df_b, mapping: dict, row_key: str):
-    """Renderiza una fila de mapeo clave con selector de columnas y opción Aproximado."""
+    """Renderiza una fila de mapeo clave — todos los controles en una sola línea."""
     cols_a = list(df_a.columns)
     cols_b = list(df_b.columns)
 
-    c1, arrow, c2, c_fuzzy, c_del = st.columns([4, 1, 4, 3, 1])
+    c1, arrow, c2, c_approx, c_norm, c_del = st.columns(_COLS)
 
     with c1:
         idx_a = cols_a.index(mapping["col_a"]) if mapping["col_a"] in cols_a else 0
@@ -33,7 +38,8 @@ def _key_mapping_row(df_a, df_b, mapping: dict, row_key: str):
         )
 
     with arrow:
-        st.markdown("<div style='text-align:center;margin-top:8px;font-size:20px'>↔</div>", unsafe_allow_html=True)
+        st.markdown("<div style='text-align:center;margin-top:8px;font-size:20px'>↔</div>",
+                    unsafe_allow_html=True)
 
     with c2:
         idx_b = cols_b.index(mapping["col_b"]) if mapping["col_b"] in cols_b else 0
@@ -41,8 +47,8 @@ def _key_mapping_row(df_a, df_b, mapping: dict, row_key: str):
             "Tabla B", cols_b, index=idx_b, key=f"{row_key}_b", label_visibility="collapsed"
         )
 
-    with c_fuzzy:
-        st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
+    with c_approx:
+        st.markdown(_SPACER, unsafe_allow_html=True)
         mapping["fuzzy"] = st.checkbox(
             "Aproximado",
             value=mapping.get("fuzzy", False),
@@ -53,6 +59,9 @@ def _key_mapping_row(df_a, df_b, mapping: dict, row_key: str):
                 "Útil cuando los códigos tienen prefijos o sufijos variables."
             ),
         )
+
+    with c_norm:
+        st.markdown(_SPACER, unsafe_allow_html=True)
         mapping["normalize"] = st.checkbox(
             "Norm. CUIT/DNI",
             value=mapping.get("normalize", False),
@@ -64,7 +73,7 @@ def _key_mapping_row(df_a, df_b, mapping: dict, row_key: str):
         )
 
     with c_del:
-        st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+        st.markdown(_SPACER, unsafe_allow_html=True)
         if st.button("❌", key=f"{row_key}_del"):
             return True
 
@@ -72,11 +81,11 @@ def _key_mapping_row(df_a, df_b, mapping: dict, row_key: str):
 
 
 def _compare_mapping_row(df_a, df_b, mapping: dict, row_key: str):
-    """Renderiza una fila de columna a comparar con opciones de comparación."""
+    """Renderiza una fila de columna a comparar — todos los controles en una sola línea."""
     cols_a = list(df_a.columns)
     cols_b = list(df_b.columns)
 
-    c1, arrow, c2, c_opts, c_del = st.columns([4, 1, 4, 3, 1])
+    c1, arrow, c2, c_approx, c_norm, c_del = st.columns(_COLS)
 
     with c1:
         idx_a = cols_a.index(mapping["col_a"]) if mapping["col_a"] in cols_a else 0
@@ -85,7 +94,8 @@ def _compare_mapping_row(df_a, df_b, mapping: dict, row_key: str):
         )
 
     with arrow:
-        st.markdown("<div style='text-align:center;margin-top:8px;font-size:20px'>↔</div>", unsafe_allow_html=True)
+        st.markdown("<div style='text-align:center;margin-top:8px;font-size:20px'>↔</div>",
+                    unsafe_allow_html=True)
 
     with c2:
         idx_b = cols_b.index(mapping["col_b"]) if mapping["col_b"] in cols_b else 0
@@ -93,8 +103,8 @@ def _compare_mapping_row(df_a, df_b, mapping: dict, row_key: str):
             "Tabla B", cols_b, index=idx_b, key=f"{row_key}_b", label_visibility="collapsed"
         )
 
-    with c_opts:
-        st.markdown("<div style='margin-top:6px'></div>", unsafe_allow_html=True)
+    with c_approx:
+        st.markdown(_SPACER, unsafe_allow_html=True)
         mapping["fuzzy"] = st.checkbox(
             "Aproximado",
             value=mapping.get("fuzzy", False),
@@ -104,6 +114,9 @@ def _compare_mapping_row(df_a, df_b, mapping: dict, row_key: str):
                 "Ej: '000100000034A' y '34' → sin diferencia."
             ),
         )
+
+    with c_norm:
+        st.markdown(_SPACER, unsafe_allow_html=True)
         mapping["normalize"] = st.checkbox(
             "Norm. CUIT/DNI",
             value=mapping.get("normalize", False),
@@ -115,7 +128,7 @@ def _compare_mapping_row(df_a, df_b, mapping: dict, row_key: str):
         )
 
     with c_del:
-        st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+        st.markdown(_SPACER, unsafe_allow_html=True)
         if st.button("❌", key=f"{row_key}_del"):
             return True
 
@@ -128,8 +141,8 @@ def column_mapper(df_a, df_b, file_key: str):
 
     Returns:
         Tuple (key_mappings, compare_mappings).
-        key_mappings: lista de {"col_a", "col_b", "fuzzy"}.
-        compare_mappings: lista de {"col_a", "col_b"}.
+        key_mappings: lista de {"col_a", "col_b", "fuzzy", "normalize"}.
+        compare_mappings: lista de {"col_a", "col_b", "fuzzy", "normalize"}.
     """
     _init_state(df_a, df_b, file_key)
 
@@ -142,7 +155,7 @@ def column_mapper(df_a, df_b, file_key: str):
             "(ej: '46348199' con 'K46348199')."
         )
 
-        c_head1, _, c_head2, c_head3, _ = st.columns([4, 1, 4, 3, 1])
+        c_head1, _, c_head2, *_ = st.columns(_COLS)
         with c_head1:
             st.markdown("**Tabla A**")
         with c_head2:
@@ -184,7 +197,7 @@ def column_mapper(df_a, df_b, file_key: str):
         )
 
         if st.session_state.compare_mappings:
-            c_head1, _, c_head2, c_head3, _ = st.columns([4, 1, 4, 3, 1])
+            c_head1, _, c_head2, *_ = st.columns(_COLS)
             with c_head1:
                 st.markdown("**Tabla A**")
             with c_head2:
