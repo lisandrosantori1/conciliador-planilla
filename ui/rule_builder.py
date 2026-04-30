@@ -163,11 +163,11 @@ def rule_builder(df, col_types, state_prefix=""):
             _render_value_input(rule, col_types, key_prefix=f"{p}current")
 
         with col4:
-            if st.button("❌ Cancelar", key=f"{p}cancel_current"):
+            st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+            if st.button("❌", key=f"{p}cancel_current"):
                 st.session_state[f"{p}current_rule"] = None
                 st.rerun()
-
-            if st.button("✅ Aplicar", key=f"{p}apply_current"):
+            if st.button("✅", key=f"{p}apply_current"):
                 if rule["condition"] == "between":
                     valid = not is_empty(rule["value"]) and not is_empty(rule["value2"])
                 else:
@@ -317,7 +317,6 @@ def rule_builder(df, col_types, state_prefix=""):
                                 else:
                                     st.caption("Cambia el signo (×−1)")
                             with tc4:
-                                st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
                                 if st.button("❌", key=f"{p}tr_{r['id']}_{ti}_del"):
                                     to_del_tr.append(ti)
                         for ti in reversed(to_del_tr):
