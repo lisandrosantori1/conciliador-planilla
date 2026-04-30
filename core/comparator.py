@@ -23,7 +23,16 @@ def conciliar(df_a, df_b, key_mappings, compare_mappings, keep_b_keys=False):
         for m in key_mappings + compare_mappings
         if m["col_a"] != m["col_b"]
     }
-    df_b_aligned = df_b.rename(columns=rename_b)
+
+    # Si renombrar col_b → col_a crearía duplicados (ej: df_b tiene "Pepito" y "Pepito.1",
+    # se mapea A."Pepito" ↔ B."Pepito.1"), hay que eliminar primero la col existente con
+    # ese nombre, siempre que no sea en sí misma un col_b en otro mapeo.
+    all_col_b_names = {m["col_b"] for m in key_mappings + compare_mappings}
+    cols_to_drop = [
+        col_a for col_b, col_a in rename_b.items()
+        if col_a in df_b.columns and col_a not in all_col_b_names
+    ]
+    df_b_aligned = df_b.drop(columns=cols_to_drop).rename(columns=rename_b)
     compare_cols = [m["col_a"] for m in compare_mappings]
 
     normalize_cols = {m["col_a"] for m in key_mappings if m.get("normalize")}
