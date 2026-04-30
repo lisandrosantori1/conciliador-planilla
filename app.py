@@ -204,90 +204,40 @@ header[data-testid="stHeader"] { background: transparent !important; height: 0 !
 """, unsafe_allow_html=True)
 
 # ── Header neostar ─────────────────────────────────────────────────────────────
-st.markdown("""
-<div style="
-    background: linear-gradient(135deg, #0B2D5E 0%, #0E3A7C 45%, #1565C0 100%);
-    margin: 0 -3rem 2rem -3rem;
-    padding: 1.3rem 3rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    position: relative;
-    overflow: hidden;
-    box-shadow: 0 4px 20px rgba(11,45,94,0.35);
-">
-    <!-- Rombos decorativos -->
-    <div style="position:absolute;right:-25px;top:-40px;width:140px;height:140px;
-        background:rgba(245,196,0,0.13);transform:rotate(45deg);border-radius:6px;"></div>
-    <div style="position:absolute;right:95px;top:-60px;width:95px;height:95px;
-        background:rgba(255,255,255,0.07);transform:rotate(45deg);border-radius:6px;"></div>
-    <div style="position:absolute;right:215px;bottom:-45px;width:75px;height:75px;
-        background:rgba(245,196,0,0.08);transform:rotate(45deg);border-radius:6px;"></div>
-    <div style="position:absolute;left:36%;top:-28px;width:58px;height:58px;
-        background:rgba(255,255,255,0.05);transform:rotate(45deg);border-radius:6px;"></div>
-    <div style="position:absolute;left:55%;bottom:-32px;width:48px;height:48px;
-        background:rgba(245,196,0,0.06);transform:rotate(45deg);border-radius:6px;"></div>
+st.markdown(
+    "<div style='background:linear-gradient(135deg,#0B2D5E 0%,#0E3A7C 45%,#1565C0 100%);"
+    "border-bottom:3px solid #F5C400;"
+    "margin:0 -3rem 2rem -3rem;"
+    "padding:1.3rem 3rem;"
+    "display:flex;align-items:center;justify-content:space-between;"
+    "box-shadow:0 4px 20px rgba(11,45,94,0.35);'>"
 
-    <!-- Logo -->
-    <div style="z-index:1;flex-shrink:0;">
-        <div style="
-            font-family:'Montserrat',Arial Black,sans-serif;
-            font-weight:900;
-            font-style:italic;
-            font-size:1.95rem;
-            color:#ffffff;
-            letter-spacing:-1.5px;
-            line-height:1;
-            text-shadow:0 2px 10px rgba(0,0,0,0.3);
-        ">neostar</div>
-        <div style="
-            font-family:'Montserrat',sans-serif;
-            font-size:0.58rem;
-            color:#90CAF9;
-            letter-spacing:2.5px;
-            text-transform:uppercase;
-            margin-top:5px;
-            font-weight:500;
-        ">compartimos tu camino</div>
-    </div>
+    "<div style='flex-shrink:0;'>"
+    "<div style='font-family:Montserrat,Arial Black,sans-serif;font-weight:900;"
+    "font-style:italic;font-size:1.95rem;color:#ffffff;letter-spacing:-1.5px;"
+    "line-height:1;text-shadow:0 2px 10px rgba(0,0,0,0.3);'>neostar</div>"
+    "<div style='font-family:Montserrat,sans-serif;font-size:0.58rem;color:#90CAF9;"
+    "letter-spacing:2.5px;text-transform:uppercase;margin-top:5px;font-weight:500;'>"
+    "compartimos tu camino</div>"
+    "</div>"
 
-    <!-- Título central -->
-    <div style="z-index:1;text-align:center;flex:1;padding:0 2rem;">
-        <div style="
-            font-family:'Montserrat',sans-serif;
-            font-size:1.3rem;
-            font-weight:700;
-            color:#ffffff;
-            letter-spacing:0.5px;
-            text-shadow:0 1px 6px rgba(0,0,0,0.25);
-        ">Conciliador de Planillas</div>
-        <div style="
-            font-size:0.65rem;
-            color:#90CAF9;
-            margin-top:5px;
-            letter-spacing:2px;
-            text-transform:uppercase;
-            font-weight:500;
-        ">IT · Herramienta Interna</div>
-    </div>
+    "<div style='text-align:center;flex:1;padding:0 2rem;'>"
+    "<div style='font-family:Montserrat,sans-serif;font-size:1.3rem;font-weight:700;"
+    "color:#ffffff;letter-spacing:0.5px;text-shadow:0 1px 6px rgba(0,0,0,0.25);'>"
+    "Conciliador de Planillas</div>"
+    "<div style='font-size:0.65rem;color:#90CAF9;margin-top:5px;letter-spacing:2px;"
+    "text-transform:uppercase;font-weight:500;'>IT · Herramienta Interna</div>"
+    "</div>"
 
-    <!-- Badge derecho -->
-    <div style="z-index:1;flex-shrink:0;">
-        <div style="
-            display:inline-block;
-            background:rgba(245,196,0,0.18);
-            border:1px solid rgba(245,196,0,0.45);
-            border-radius:20px;
-            padding:5px 14px;
-            font-size:0.63rem;
-            color:#F5C400;
-            font-weight:700;
-            letter-spacing:1.5px;
-            text-transform:uppercase;
-        ">📊 Planillas</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+    "<div style='flex-shrink:0;'>"
+    "<div style='display:inline-block;background:rgba(245,196,0,0.18);"
+    "border:1px solid rgba(245,196,0,0.45);border-radius:20px;padding:5px 14px;"
+    "font-size:0.63rem;color:#F5C400;font-weight:700;letter-spacing:1.5px;"
+    "text-transform:uppercase;'>\U0001f4ca Planillas</div>"
+    "</div>"
+    "</div>",
+    unsafe_allow_html=True,
+)
 
 TYPE_LABELS = {"str": "Texto", "int": "Número entero", "float": "Número decimal", "date": "Fecha"}
 CALC_OPS = ["×", "+", "-", "÷"]
