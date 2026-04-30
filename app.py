@@ -19,9 +19,275 @@ from utils.file_loader import accepted_extensions, get_excel_sheets, load_datafr
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-st.set_page_config(page_title="Conciliador de Planillas - IT Concesionaria", layout="wide")
-st.title("Conciliador General de Planillas")
-st.markdown("Cargá entre 1 y 4 planillas para filtrar datos o buscar coincidencias.")
+st.set_page_config(
+    page_title="Conciliador · neostar",
+    page_icon="🚗",
+    layout="wide",
+)
+
+# ── Tema neostar ───────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;0,800;1,900&display=swap');
+
+/* ── Variables ── */
+:root {
+    --ns-navy:   #0B2D5E;
+    --ns-blue:   #1565C0;
+    --ns-sky:    #1976D2;
+    --ns-gold:   #F5C400;
+    --ns-bg:     #EDF1F7;
+    --ns-card:   #FFFFFF;
+    --ns-border: #C8D8EE;
+    --ns-text:   #1A1A2E;
+    --ns-muted:  #5B6E8A;
+    --ns-dark:   #2D3748;
+}
+
+/* ── Fondo con patrón rombo sutil ── */
+html, body, .stApp {
+    font-family: 'Montserrat', sans-serif !important;
+    background-color: var(--ns-bg) !important;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cpolygon points='30,4 56,30 30,56 4,30' fill='none' stroke='%231565C0' stroke-width='0.8' stroke-opacity='0.09'/%3E%3C/svg%3E") !important;
+    background-attachment: fixed !important;
+}
+
+/* ── Contenedor principal ── */
+.block-container {
+    padding-top: 0 !important;
+    padding-left: 3rem !important;
+    padding-right: 3rem !important;
+    padding-bottom: 4rem !important;
+    max-width: 100% !important;
+}
+
+/* ── Botones regulares ── */
+.stButton > button {
+    background: linear-gradient(135deg, var(--ns-navy) 0%, var(--ns-blue) 100%) !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 6px !important;
+    font-family: 'Montserrat', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 0.84rem !important;
+    letter-spacing: 0.4px !important;
+    padding: 0.45rem 1.1rem !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 8px rgba(11,45,94,0.22) !important;
+}
+.stButton > button:hover {
+    background: linear-gradient(135deg, var(--ns-blue) 0%, #1E88E5 100%) !important;
+    box-shadow: 0 5px 15px rgba(21,101,192,0.4) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* ── Botón primario ── */
+.stButton > button[kind="primary"] {
+    background: linear-gradient(135deg, var(--ns-blue) 0%, var(--ns-sky) 100%) !important;
+    font-size: 0.95rem !important;
+    padding: 0.55rem 1.5rem !important;
+    box-shadow: 0 3px 12px rgba(21,101,192,0.35) !important;
+}
+.stButton > button[kind="primary"]:hover {
+    background: linear-gradient(135deg, var(--ns-navy) 0%, var(--ns-blue) 100%) !important;
+    box-shadow: 0 6px 20px rgba(21,101,192,0.5) !important;
+}
+
+/* ── Containers con borde ── */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--ns-card) !important;
+    border: 1px solid var(--ns-border) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 2px 12px rgba(11,45,94,0.07) !important;
+}
+
+/* ── Expanders ── */
+[data-testid="stExpander"] {
+    background: var(--ns-card) !important;
+    border: 1px solid var(--ns-border) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 2px 12px rgba(11,45,94,0.07) !important;
+}
+[data-testid="stExpander"] details summary p {
+    font-weight: 700 !important;
+    color: var(--ns-navy) !important;
+}
+
+/* ── Métricas ── */
+[data-testid="stMetric"] {
+    background: var(--ns-card) !important;
+    border: 1px solid var(--ns-border) !important;
+    border-top: 3px solid var(--ns-blue) !important;
+    border-radius: 12px !important;
+    padding: 1rem 1.2rem 0.8rem !important;
+    box-shadow: 0 2px 12px rgba(11,45,94,0.07) !important;
+}
+[data-testid="stMetricLabel"] p {
+    color: var(--ns-muted) !important;
+    font-size: 0.72rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 1px !important;
+    text-transform: uppercase !important;
+}
+[data-testid="stMetricValue"] {
+    color: var(--ns-navy) !important;
+    font-weight: 800 !important;
+}
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"] {
+    background: transparent !important;
+    gap: 4px !important;
+    border-bottom: 2px solid var(--ns-border) !important;
+}
+.stTabs [data-baseweb="tab"] {
+    background: var(--ns-card) !important;
+    border: 1px solid var(--ns-border) !important;
+    border-bottom: none !important;
+    border-radius: 8px 8px 0 0 !important;
+    color: var(--ns-muted) !important;
+    font-family: 'Montserrat', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 0.84rem !important;
+    padding: 0.55rem 1.2rem !important;
+    transition: all 0.15s !important;
+}
+.stTabs [data-baseweb="tab"]:hover {
+    background: #EDF4FF !important;
+    color: var(--ns-blue) !important;
+}
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    background: var(--ns-blue) !important;
+    color: #ffffff !important;
+    border-color: var(--ns-blue) !important;
+}
+
+/* ── Inputs y selects ── */
+[data-baseweb="select"] > div,
+.stTextInput > div > div > input,
+.stNumberInput > div > div > input {
+    border-color: var(--ns-border) !important;
+    border-radius: 6px !important;
+    background: var(--ns-card) !important;
+}
+[data-baseweb="select"] > div:focus-within,
+.stTextInput > div > div > input:focus {
+    border-color: var(--ns-blue) !important;
+    box-shadow: 0 0 0 2px rgba(21,101,192,0.2) !important;
+}
+
+/* ── Dataframes ── */
+[data-testid="stDataFrame"] {
+    border-radius: 10px !important;
+    overflow: hidden !important;
+    border: 1px solid var(--ns-border) !important;
+    box-shadow: 0 2px 10px rgba(11,45,94,0.06) !important;
+}
+
+/* ── File uploader ── */
+[data-testid="stFileUploaderDropzone"] {
+    border-color: var(--ns-blue) !important;
+    border-radius: 10px !important;
+    background: rgba(21,101,192,0.03) !important;
+}
+
+/* ── Alertas ── */
+[data-testid="stAlert"] { border-radius: 10px !important; }
+
+/* ── Separadores ── */
+hr { border-color: var(--ns-border) !important; }
+
+/* ── Ocultar branding Streamlit ── */
+#MainMenu, footer, [data-testid="stDeployButton"] { display: none !important; }
+header[data-testid="stHeader"] { background: transparent !important; height: 0 !important; }
+</style>
+""", unsafe_allow_html=True)
+
+# ── Header neostar ─────────────────────────────────────────────────────────────
+st.markdown("""
+<div style="
+    background: linear-gradient(135deg, #0B2D5E 0%, #0E3A7C 45%, #1565C0 100%);
+    margin: 0 -3rem 2rem -3rem;
+    padding: 1.3rem 3rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(11,45,94,0.35);
+">
+    <!-- Rombos decorativos -->
+    <div style="position:absolute;right:-25px;top:-40px;width:140px;height:140px;
+        background:rgba(245,196,0,0.13);transform:rotate(45deg);border-radius:6px;"></div>
+    <div style="position:absolute;right:95px;top:-60px;width:95px;height:95px;
+        background:rgba(255,255,255,0.07);transform:rotate(45deg);border-radius:6px;"></div>
+    <div style="position:absolute;right:215px;bottom:-45px;width:75px;height:75px;
+        background:rgba(245,196,0,0.08);transform:rotate(45deg);border-radius:6px;"></div>
+    <div style="position:absolute;left:36%;top:-28px;width:58px;height:58px;
+        background:rgba(255,255,255,0.05);transform:rotate(45deg);border-radius:6px;"></div>
+    <div style="position:absolute;left:55%;bottom:-32px;width:48px;height:48px;
+        background:rgba(245,196,0,0.06);transform:rotate(45deg);border-radius:6px;"></div>
+
+    <!-- Logo -->
+    <div style="z-index:1;flex-shrink:0;">
+        <div style="
+            font-family:'Montserrat',Arial Black,sans-serif;
+            font-weight:900;
+            font-style:italic;
+            font-size:1.95rem;
+            color:#ffffff;
+            letter-spacing:-1.5px;
+            line-height:1;
+            text-shadow:0 2px 10px rgba(0,0,0,0.3);
+        ">neostar</div>
+        <div style="
+            font-family:'Montserrat',sans-serif;
+            font-size:0.58rem;
+            color:#90CAF9;
+            letter-spacing:2.5px;
+            text-transform:uppercase;
+            margin-top:5px;
+            font-weight:500;
+        ">compartimos tu camino</div>
+    </div>
+
+    <!-- Título central -->
+    <div style="z-index:1;text-align:center;flex:1;padding:0 2rem;">
+        <div style="
+            font-family:'Montserrat',sans-serif;
+            font-size:1.3rem;
+            font-weight:700;
+            color:#ffffff;
+            letter-spacing:0.5px;
+            text-shadow:0 1px 6px rgba(0,0,0,0.25);
+        ">Conciliador de Planillas</div>
+        <div style="
+            font-size:0.65rem;
+            color:#90CAF9;
+            margin-top:5px;
+            letter-spacing:2px;
+            text-transform:uppercase;
+            font-weight:500;
+        ">IT · Herramienta Interna</div>
+    </div>
+
+    <!-- Badge derecho -->
+    <div style="z-index:1;flex-shrink:0;">
+        <div style="
+            display:inline-block;
+            background:rgba(245,196,0,0.18);
+            border:1px solid rgba(245,196,0,0.45);
+            border-radius:20px;
+            padding:5px 14px;
+            font-size:0.63rem;
+            color:#F5C400;
+            font-weight:700;
+            letter-spacing:1.5px;
+            text-transform:uppercase;
+        ">📊 Planillas</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
 TYPE_LABELS = {"str": "Texto", "int": "Número entero", "float": "Número decimal", "date": "Fecha"}
 CALC_OPS = ["×", "+", "-", "÷"]
