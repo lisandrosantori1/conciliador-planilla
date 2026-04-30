@@ -3,12 +3,8 @@
 import streamlit as st
 
 # Layout: [Tabla A] [↔] [Tabla B] [Aprox + Norm apilados] [❌]
-_COLS = [4, 1, 4, 3, 1]
-
-# Selects con label colapsado: el espacio del label (invisible) es ~22px.
-# El checkbox debe empezar un poco por debajo para quedar centrado con el input.
-_CHECKBOX_TOP = "<div style='margin-top:10px'></div>"
-_BTN_TOP      = "<div style='margin-top:28px'></div>"
+_COLS    = [4, 1, 4, 3, 1]
+_BTN_TOP = "<div style='margin-top:28px'></div>"
 
 
 def _default_key_mappings(df_a, df_b):
@@ -51,7 +47,6 @@ def _key_mapping_row(df_a, df_b, mapping: dict, row_key: str):
         )
 
     with c_checks:
-        st.markdown(_CHECKBOX_TOP, unsafe_allow_html=True)
         mapping["fuzzy"] = st.checkbox(
             "Aproximado",
             value=mapping.get("fuzzy", False),
@@ -104,7 +99,6 @@ def _compare_mapping_row(df_a, df_b, mapping: dict, row_key: str):
         )
 
     with c_checks:
-        st.markdown(_CHECKBOX_TOP, unsafe_allow_html=True)
         mapping["fuzzy"] = st.checkbox(
             "Aproximado",
             value=mapping.get("fuzzy", False),
