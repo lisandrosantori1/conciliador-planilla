@@ -134,6 +134,18 @@ def test_different_column_names():
     assert len(solo_b) == 1
 
 
+def test_duplicate_col_in_b_second_occurrence():
+    # df_b tiene "Pepito" (col 1) y "Pepito.1" (col 2, auto-renamed por pandas)
+    # Se mapea A."Pepito" ↔ B."Pepito.1" → no debe fallar por duplicado
+    df_a = pd.DataFrame({"Pepito": [1, 2, 3], "otro": ["x", "y", "z"]})
+    df_b = pd.DataFrame({"extra": [10, 20, 30], "Pepito": [99, 99, 99], "Pepito.1": [1, 2, 4]})
+    km = [{"col_a": "Pepito", "col_b": "Pepito.1", "fuzzy": False}]
+    coinc, solo_a, solo_b, _ = conciliar(df_a, df_b, km, [])
+    assert len(coinc) == 2   # ids 1 y 2 coinciden
+    assert len(solo_a) == 1  # id 3 solo en A
+    assert len(solo_b) == 1  # id 4 solo en B
+
+
 # ── conciliar — fuzzy matching ─────────────────────────────────────────────────
 
 def test_fuzzy_merge():
